@@ -61,11 +61,15 @@ critic_input = torch.cat((critic_obs, goal), dim=-1)
 ### 1.3 结论
 
 **agent 确实能感知落足目标，且格式、坐标系、维度（16）都与原论文一致**，这一环没有功能缺陷。
-唯一的实现差异是当前把 `obs / goal / critic_obs` 三者分别做 `RunningMeanStd` 归一化（`ppo.py::Normalizer`），
-而原论文是统一拼接后再归一化——这不会导致"感知不到目标"。
+当前把 `obs / goal / critic_obs` 三者分别做逐维 `RunningMeanStd` 归一化（`ppo.py::Normalizer`），
+而原论文是统一拼接后再归一化。在相同 batch、相同时序且 train/eval 恢复同一组统计量时，分开维护
+再拼接与拼接后逐维归一化数值等价，不会导致“感知不到目标”。但是 RMS 的 mean/variance/count
+也是模型状态；若 checkpoint 只保存网络权重，eval 新建空 Normalizer，就会让策略在错误的输入
+坐标系中解释这 16 维目标。`Aug21_18-27-00_step005-020_yaw10pct` 已确认存在这一问题，详见
+[`normalization_and_checkpoint.md`](normalization_and_checkpoint.md)。
 
-> 因此"只学会站桩"的根因不在喂入，而在下面检查项 2（目标不可达）+ 检查项 4（朝向项过重）导致
-> 跟踪奖励长期≈0，agent 退化为"最大化生存/静态奖励"。
+> 因此训练阶段的“只学会站桩”不能归因于目标没有进入网络；但 train/eval 一致性还要求保存并
+> 恢复 goal RMS。目标编码正确与推理归一化正确是两个独立条件。
 
 ---
 

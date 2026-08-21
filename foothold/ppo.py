@@ -55,6 +55,41 @@ class RunningMeanStd:
             out = torch.clamp(out, -clip, clip)
         return out
 
+    def state_dict(self):
+        """返回可随 checkpoint 保存的运行统计，不包含任何 batch 样本。"""
+        return {
+            "mean": self.mean.detach().clone(),
+            "var": self.var.detach().clone(),
+            "count": self.count.detach().clone(),
+        }
+
+    @torch.no_grad()
+    def load_state_dict(self, state):
+        required = {"mean", "var", "count"}
+        missing = required.difference(state)
+        if missing:
+            raise KeyError(f"RunningMeanStd 缺少字段: {sorted(missing)}")
+
+        loaded = {}
+        for name, target in (("mean", self.mean), ("var", self.var), ("count", self.count)):
+            value = torch.as_tensor(state[name], dtype=target.dtype, device=target.device)
+            if value.shape != target.shape:
+                raise ValueError(
+                    f"RunningMeanStd.{name} 形状不匹配: checkpoint={tuple(value.shape)}, "
+                    f"expected={tuple(target.shape)}")
+            if not torch.isfinite(value).all():
+                raise ValueError(f"RunningMeanStd.{name} 包含非有限值")
+            loaded[name] = value
+
+        if (loaded["var"] < 0).any():
+            raise ValueError("RunningMeanStd.var 不能为负")
+        if loaded["count"].item() < 0:
+            raise ValueError("RunningMeanStd.count 不能为负")
+
+        self.mean.copy_(loaded["mean"])
+        self.var.copy_(loaded["var"])
+        self.count.copy_(loaded["count"])
+
 
 class Normalizer:
     """归一化 actor 观测、goal、critic 观测，以及按折扣回报归一奖励。"""
@@ -86,6 +121,42 @@ class Normalizer:
         if update:
             self.return_rms.update(self.returns)
         return rewards / torch.sqrt(self.return_rms.var + 1e-8)
+
+    def state_dict(self):
+        """保存定义策略输入坐标系和 PPO 奖励尺度的全部 RMS。"""
+        return {
+            "version": 1,
+            "gamma": self.gamma,
+            "obs_clip": self.obs_clip,
+            "actor_obs": self.actor_obs.state_dict(),
+            "goal": self.goal.state_dict(),
+            "critic_obs": self.critic_obs.state_dict(),
+            "return_rms": self.return_rms.state_dict(),
+        }
+
+    def load_state_dict(self, state):
+        required = {"version", "gamma", "obs_clip", "actor_obs", "goal", "critic_obs", "return_rms"}
+        missing = required.difference(state)
+        if missing:
+            raise KeyError(f"Normalizer checkpoint 缺少字段: {sorted(missing)}")
+        if state["version"] != 1:
+            raise ValueError(f"不支持的 Normalizer 状态版本: {state['version']}")
+        gamma = float(state["gamma"])
+        obs_clip = state["obs_clip"]
+        if not 0.0 <= gamma <= 1.0:
+            raise ValueError(f"Normalizer.gamma 超出 [0,1]: {gamma}")
+        if obs_clip is not None:
+            obs_clip = float(obs_clip)
+            if obs_clip <= 0:
+                raise ValueError(f"Normalizer.obs_clip 必须为正数或 None: {obs_clip}")
+        self.actor_obs.load_state_dict(state["actor_obs"])
+        self.goal.load_state_dict(state["goal"])
+        self.critic_obs.load_state_dict(state["critic_obs"])
+        self.return_rms.load_state_dict(state["return_rms"])
+        self.gamma = gamma
+        self.obs_clip = obs_clip
+        # returns 是与当前 rollout/env 数量绑定的瞬时状态，不跨运行恢复。
+        self.returns = None
 
 
 # --------------------------------------------------------------------------

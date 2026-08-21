@@ -53,9 +53,17 @@ cos(2*pi*phase), sin(2*pi*phase)
 
 论文附录最终值：8192 env、50 horizon、20 epochs、1 minibatch、`gamma=0.995`、`lambda=0.95`、clip `0.2`、entropy `0.01`、value coefficient `0.5`、max grad norm `1.0`、ELU MLP `[512,256,128]`、可学习 action std 初值 `0.135`。自适应学习率：初值 `1e-5`，范围 `[1e-6,1e-2]`，KL target `0.02`，margin/scale 均为 `1.5`。观测与奖励均使用 running normalization，history length 为 1。
 
-网络初始化严格复现随附 Flax 实现：每个隐藏层使用 gain `sqrt(2)` 的正交初始化，输出层 gain `0.01`，全部 bias 为零。观测 RMS 的初始 count 为 `1e-6`、batch variance 加 `1e-6`，标准化后不额外裁切；reward-return RMS 初始 count 为 `1e-4`。Critic clipped MSE 先乘显式 `0.5`，再乘配置的 `vf_coef=0.5`。Advantage 标准差使用 population variance。以上细节均有本地数值测试，不能退回 PyTorch Linear 默认初始化、隐藏 `[-10,10]` normalized-observation clip 或双倍 Critic 权重。
+网络初始化严格复现随附 Flax 实现：每个隐藏层使用 gain `sqrt(2)` 的正交初始化，输出层 gain `0.01`，全部 bias 为零。观测 RMS 的初始 count 为 `1e-6`、batch variance 加 `1e-6`；reward-return RMS 初始 count 为 `1e-4`。当前实现通过 `running_obs_clip=10` 对 normalized observation 使用 `[-10,10]` 裁切，这与此前“标准化后不额外裁切”的复现目标不一致，属于待单独核验的 fidelity 差异；它不是本次 train/eval 失配的原因，因为该失配发生在训练 RMS 根本没有被 eval 恢复之前。Critic clipped MSE 先乘显式 `0.5`，再乘配置的 `vf_coef=0.5`。Advantage 标准差使用 population variance。以上初始化与损失细节不能退回 PyTorch Linear 默认初始化或双倍 Critic 权重。
 
 论文仓库中的当前 `conf_t1.yaml` 是调试/开发态（2 env、1000 total steps、10 epochs、32 minibatches、`3e-4`），与附录不一致。本项目正式配置采用附录值，并在小规模 smoke test 时只通过 CLI 覆盖规模，不能静默修改正式默认值。
+
+运行归一化的 mean、variance 和 count 与网络权重共同定义策略函数，属于 checkpoint 的必要状态。
+format version 2 checkpoint 已保存 actor observation、goal、critic observation 和 discounted-return
+四组 RMS、Normalizer 超参数及训练配置；eval 恢复训练 RMS 后冻结更新，并使用 checkpoint 配置创建
+环境。新建 `mean=0,var=1` 的 Normalizer 不能替代训练统计，也不能用单环境 eval 轨迹在线重估。
+`Aug21_18-27-00_step005-020_yaw10pct` 的旧 checkpoint 只保存了 Actor-Critic 权重，因而其 eval
+输入坐标系与训练不一致，当前 eval 会明确拒绝加载；完整机制、证据及兼容约束见
+[`normalization_and_checkpoint.md`](normalization_and_checkpoint.md)。
 
 自适应学习率的实现顺序也与论文代码一致：先以当前学习率执行梯度更新，再用该 minibatch 的
 `mean((ratio - 1 + eps) - log(ratio + eps))` 近似 KL 调节下一次更新的学习率。不能在当前梯度

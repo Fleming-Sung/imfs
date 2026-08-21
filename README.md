@@ -33,8 +33,12 @@ LD_LIBRARY_PATH=$CONDA_PREFIX/lib python -m foothold.train --headless --num_envs
 python -m foothold.eval --checkpoint logs/<run>/model_100.pt --steps 500
 ```
 
+评估要求 version 2 checkpoint，其中包含训练期 Normalizer/RMS 和训练配置。旧 checkpoint 只有
+网络权重，无法精确恢复训练输入坐标系，eval 会明确拒绝加载而不是静默使用空 Normalizer。
+
 ## 文档
 
+- `docs/normalization_and_checkpoint.md` — 运行归一化原理、checkpoint 契约与 train/eval 失配分析
 - `docs/foothold_goal_analysis.md` — 落足点目标机制分析（5 项检查，含公式与修改记录）
 - `docs/reproduction_spec.md` — 复现规格
 - `docs/provenance.md` — 上游来源与资产校验（SHA-256）

@@ -12,7 +12,7 @@ import numpy as np
 from isaacgym import gymutil
 import torch
 
-from .config import get_flat_config
+from .config import AttrDict, get_flat_config
 from .env import FootholdEnv, make_sim_params
 from .networks import ActorCritic
 from .ppo import Normalizer
@@ -43,11 +43,33 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    cfg = get_flat_config()
-    cfg.env.num_envs = 1
-    env = FootholdEnv(cfg, make_sim_params(cfg, args), args.sim_device, args.headless)
+    # 不传 weights_only，以同时兼容项目使用的 PyTorch 1.12 和较新版本。
+    ckpt = torch.load(args.checkpoint, map_location="cpu")
+    if "normalizer" not in ckpt:
+        raise SystemExit(
+            "checkpoint 不包含训练期 Normalizer/RMS，无法进行与训练一致的评估。"
+            "这是旧格式 checkpoint；请使用包含 normalizer 字段的新 checkpoint，"
+            "不要用 eval 轨迹临时重估 RMS。")
+    if ckpt.get("format_version") != 2 or "config" not in ckpt:
+        raise SystemExit(
+            f"不支持的 checkpoint 格式: format_version={ckpt.get('format_version')!r}；"
+            "评估需要同时包含训练配置的 version 2 checkpoint。")
 
-    ckpt = torch.load(args.checkpoint, map_location=env.device, weights_only=False)
+    try:
+        cfg = AttrDict.from_nested(ckpt["config"])
+        runtime_cfg = get_flat_config()
+        # 训练配置保存的是绝对路径；跨机器评估时只重定位同型号的本地资产。
+        if not os.path.isfile(cfg.asset.file):
+            if cfg.asset.name != runtime_cfg.asset.name:
+                raise ValueError(
+                    f"checkpoint 机器人 {cfg.asset.name!r} 与本地默认资源 "
+                    f"{runtime_cfg.asset.name!r} 不一致")
+            cfg.asset.file = runtime_cfg.asset.file
+        cfg.env.num_envs = 1
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        raise SystemExit(f"checkpoint 中的训练配置无效: {exc}") from exc
+
+    env = FootholdEnv(cfg, make_sim_params(cfg, args), args.sim_device, args.headless)
     ac = ActorCritic(env.num_obs + cfg.foothold.goal_dim,
                      env.num_critic_obs + cfg.foothold.goal_dim, env.num_dof, cfg).to(env.device)
     ac.load_state_dict(ckpt["actor_critic"])
@@ -55,6 +77,10 @@ def main():
 
     normalizer = Normalizer(env.num_obs, cfg.foothold.goal_dim, env.num_critic_obs,
                             cfg.ppo.gamma, env.device, cfg.normalization.running_obs_clip)
+    try:
+        normalizer.load_state_dict(ckpt["normalizer"])
+    except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+        raise SystemExit(f"checkpoint 中的 Normalizer 状态无效: {exc}") from exc
 
     obs, goal, critic_obs = env.get_observations()
     obs, goal, critic_obs = normalizer.observations(obs, goal, critic_obs, update=False)

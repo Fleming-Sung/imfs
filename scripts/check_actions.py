@@ -56,9 +56,6 @@ def main():
     env = FootholdEnv(cfg, make_sim_params(cfg, args), args.sim_device, True)
     num_goal = cfg.foothold.goal_dim
     ac = ActorCritic(env.num_obs + num_goal, env.num_critic_obs + num_goal, env.num_dof, cfg).to(env.device)
-    normalizer = Normalizer(env.num_obs, num_goal, env.num_critic_obs, cfg.ppo.gamma, env.device,
-                            cfg.normalization.running_obs_clip)
-
     checkpoints = sorted(glob.glob(os.path.join(run_dir, "model_*.pt")),
                          key=lambda p: int(os.path.basename(p).split("_")[1].split(".")[0]))
 
@@ -72,10 +69,16 @@ def main():
     for pt in checkpoints:
         it = os.path.basename(pt).split("_")[1].split(".")[0]
         ckpt = torch.load(pt, map_location=env.device)
+        if "normalizer" not in ckpt:
+            print(f"{it:>6s} {'N/A':>8s} {'N/A':>10s} {'N/A':>10s}  缺少 Normalizer，跳过")
+            continue
         ac.load_state_dict(ckpt["actor_critic"])
+        normalizer = Normalizer(env.num_obs, num_goal, env.num_critic_obs, cfg.ppo.gamma, env.device,
+                                cfg.normalization.running_obs_clip)
+        normalizer.load_state_dict(ckpt["normalizer"])
 
         obs, goal, critic_obs = env.get_observations()
-        obs, goal, critic_obs = normalizer.observations(obs, goal, critic_obs, update=True)
+        obs, goal, critic_obs = normalizer.observations(obs, goal, critic_obs, update=False)
 
         abs_a, abs_mu = [], []
         sigma = torch.clamp(torch.exp(ac.logstd), ac.min_std, ac.max_std).mean().item()
@@ -90,7 +93,7 @@ def main():
                     abs_mu.append(mu.abs().mean(dim=1))
                     abs_a.append(a.abs().mean(dim=1))
                 obs, reward, done, extras, goal, critic_obs = env.step(a)
-                obs, goal, critic_obs = normalizer.observations(obs, goal, critic_obs, update=True)
+                obs, goal, critic_obs = normalizer.observations(obs, goal, critic_obs, update=False)
 
         abs_mu = torch.cat(abs_mu).mean().item() if abs_mu else 0.0
         abs_a = torch.cat(abs_a).mean().item() if abs_a else 0.0

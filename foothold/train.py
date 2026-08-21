@@ -21,6 +21,21 @@ from .networks import ActorCritic
 from .ppo import PPO, Normalizer
 
 
+CHECKPOINT_FORMAT_VERSION = 2
+
+
+def checkpoint_state(iteration, actor_critic, normalizer, cfg):
+    """构造可正确用于 eval 的完整策略 checkpoint。"""
+    return {
+        "format_version": CHECKPOINT_FORMAT_VERSION,
+        "iteration": iteration,
+        "actor_critic": actor_critic.state_dict(),
+        "normalizer": normalizer.state_dict(),
+        # 转为普通 dict/list/scalar，避免 checkpoint 依赖 AttrDict 的 pickle 类型。
+        "config": json.loads(json.dumps(cfg)),
+    }
+
+
 def parse_args():
     custom = [
         {"name": "--num_envs", "type": int, "default": 128},
@@ -168,10 +183,10 @@ def main():
 
         # ---- 保存 ----
         if (it + 1) % cfg.runner.save_interval == 0:
-            torch.save({"iteration": it, "actor_critic": ac.state_dict()},
+            torch.save(checkpoint_state(it, ac, normalizer, cfg),
                        os.path.join(log_dir, f"model_{it + 1}.pt"))
 
-    torch.save({"iteration": cfg.runner.max_iterations, "actor_critic": ac.state_dict()},
+    torch.save(checkpoint_state(cfg.runner.max_iterations, ac, normalizer, cfg),
                os.path.join(log_dir, f"model_{cfg.runner.max_iterations}.pt"))
     print(f"日志目录: {log_dir}")
 
