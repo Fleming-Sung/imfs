@@ -39,7 +39,7 @@ def get_flat_config():
             "decimation": 4,       # 论文 n_substeps=4 → 策略 50 Hz
             "up_axis": 1,          # gymapi.UpAxis: 1 = Z 轴向上
             "gravity": [0.0, 0.0, -9.81],
-            "healthy_height_range": [0.30, 0.90],  # T1 值；SF 映射待校验
+            "healthy_height_range": [0.35, 0.80],  # T1 值；SF 映射待校验
             "render_target_envs": 1,               # 只画第 0 个环境的落足目标
         },
         "terrain": {
@@ -85,7 +85,7 @@ def get_flat_config():
         },
         "foothold": {
             "goal_dim": 16,
-            "step_distance": [0.05, 0.20],
+            "step_distance": [0.07, 0.35],
             "step_angle_deg": [-30.0, 30.0],
             "target_yaw_deg": [-30.0, 30.0],
             "movement_direction_deg": [-180.0, 180.0],
@@ -101,7 +101,7 @@ def get_flat_config():
             "swing_window_half_width": 0.10,
             "goal_height": 0.65,
             "max_num_gaits": 10,
-            "step_distance_curriculum": {"start": [0.05, 0.10], "end": [0.05, 0.20], "ramp_iterations": 1000},
+            "step_distance_curriculum": {"start": [0.07, 0.15], "end": [0.07, 0.35], "ramp_iterations": 500},
         },
         "rewards": {
             "scales": {
@@ -110,14 +110,18 @@ def get_flat_config():
                 "stance_xy": 5.0, "stance_z": 0.0, "stance_yaw": 0.4,
                 "feet_swing": 6.0, "gait_height": 4.0, "knee_height": 0.0,
                 "nominal_joint_pos": 4.0,
-                "base_height": -2.0, "action_rate": -3.0, "feet_slip": -3.0,
+                "base_height": -10.0, "action_rate": -3.0, "feet_slip": -3.0,
                 "feet_roll": -0.4, "orientation": -5.0, "torques": -2e-4,
                 "energy": -2e-3, "ang_vel_xy": -0.2, "dof_vel": -9e-4,
                 "dof_acc": -1e-7, "root_acc": -1e-4, "dof_pos_limits": -1.0,
+                "body_contacts": -2.0,
             },
             "sharpness": {"xy": 100.0, "z": 100.0, "yaw": 100.0, "gait_height": 100.0},
             "base_height_target": 0.65,
             "joint_position_limit_scale": 0.98,
+            # 膝盖/大腿等身体部件触地惩罚：净接触力 z 分量超过该阈值(N)即计数
+            "body_contacts_threshold": 1.0,
+            "contact_penalty_bodies": ["abad", "hip", "knee"],
             "clip_single_reward": None,
             "clip_reward": None,
         },

@@ -1,8 +1,9 @@
 """train.py —— 训练入口（论文 PPO + 步长 curriculum）。
 
 用法（在 workspace 根目录）：
-    python -m foothold.train                # 默认 128 环境、开仿真窗口
-    python -m foothold.train --headless     # 无渲染
+    python -m foothold.train                                  # 默认 128 环境、开仿真窗口
+    python -m foothold.train --headless                       # 无渲染
+    python -m foothold.train --resume logs/<run>/model_1000.pt  # 断点续训
 """
 
 import argparse
@@ -24,9 +25,9 @@ from .ppo import PPO, Normalizer
 CHECKPOINT_FORMAT_VERSION = 2
 
 
-def checkpoint_state(iteration, actor_critic, normalizer, cfg):
-    """构造可正确用于 eval 的完整策略 checkpoint。"""
-    return {
+def checkpoint_state(iteration, actor_critic, normalizer, cfg, ppo=None):
+    """构造可正确用于 eval 与 resume 的完整策略 checkpoint。"""
+    state = {
         "format_version": CHECKPOINT_FORMAT_VERSION,
         "iteration": iteration,
         "actor_critic": actor_critic.state_dict(),
@@ -34,6 +35,28 @@ def checkpoint_state(iteration, actor_critic, normalizer, cfg):
         # 转为普通 dict/list/scalar，避免 checkpoint 依赖 AttrDict 的 pickle 类型。
         "config": json.loads(json.dumps(cfg)),
     }
+    if ppo is not None:
+        state["optimizer"] = ppo.optimizer.state_dict()
+        state["ppo_learning_rate"] = float(ppo.learning_rate)
+    return state
+
+
+def load_resume(path, ac, ppo, normalizer, device):
+    """从 checkpoint 恢复策略/归一化/优化器，返回下一轮迭代序号。"""
+    ckpt = torch.load(path, map_location=device)
+    if ckpt.get("format_version") != CHECKPOINT_FORMAT_VERSION:
+        raise SystemExit(f"不支持的 checkpoint 格式: format_version={ckpt.get('format_version')!r}")
+    if "normalizer" not in ckpt or "actor_critic" not in ckpt:
+        raise SystemExit("checkpoint 缺少 actor_critic / normalizer 字段，无法 resume")
+    ac.load_state_dict(ckpt["actor_critic"])
+    normalizer.load_state_dict(ckpt["normalizer"])
+    if "optimizer" in ckpt:
+        ppo.optimizer.load_state_dict(ckpt["optimizer"])
+        lr = float(ckpt.get("ppo_learning_rate", ppo.learning_rate))
+        ppo.learning_rate = lr
+        for pg in ppo.optimizer.param_groups:
+            pg["lr"] = lr
+    return int(ckpt.get("iteration", -1)) + 1
 
 
 def parse_args():
@@ -44,6 +67,7 @@ def parse_args():
         {"name": "--run_name", "type": str, "default": ""},
         {"name": "--save_interval", "type": int, "default": 100},
         {"name": "--log_dir", "type": str, "default": None},
+        {"name": "--resume", "type": str, "default": ""},
     ]
     args = gymutil.parse_arguments(description="foothold training (paper)",
                                    headless=True, custom_parameters=custom)
@@ -71,6 +95,8 @@ def main():
     cfg.env.num_envs = args.num_envs
     cfg.runner.max_iterations = args.max_iterations
     cfg.runner.save_interval = args.save_interval
+    if args.resume:
+        cfg.resume_from = args.resume
 
     log_dir = make_log_dir(args)
     with open(os.path.join(log_dir, "config.json"), "w") as f:
@@ -85,6 +111,13 @@ def main():
                             cfg.normalization.running_obs_clip)
     ppo.init_storage(cfg.env.num_envs, cfg.runner.num_steps_per_env,
                      env.num_obs, env.num_critic_obs, num_goal, env.num_dof)
+
+    start_iter = 0
+    if args.resume:
+        if not os.path.isfile(args.resume):
+            raise SystemExit(f"--resume 路径不存在: {args.resume}")
+        start_iter = load_resume(args.resume, ac, ppo, normalizer, env.device)
+        print(f"从 {args.resume} 恢复，自 iteration {start_iter} 继续训练")
 
     obs, goal, critic_obs = env.get_observations()
     obs, goal, critic_obs = normalizer.observations(obs, goal, critic_obs, update=True)
@@ -103,7 +136,7 @@ def main():
 
     start_time = time.time()
 
-    for it in range(cfg.runner.max_iterations):
+    for it in range(start_iter, cfg.runner.max_iterations):
         # ---- 步长 curriculum（论文：前 1000 轮从短步长线性涨到完整范围）----
         cur = cfg.foothold.step_distance_curriculum
         t = min(1.0, it / float(cur.ramp_iterations))
@@ -153,7 +186,7 @@ def main():
         # ---- 日志 ----
         fps = int(cfg.runner.num_steps_per_env * cfg.env.num_envs / (time.time() - t0))
         elapsed = time.time() - start_time
-        eta = elapsed / (it + 1) * (cfg.runner.max_iterations - it - 1)
+        eta = elapsed / (it - start_iter + 1) * (cfg.runner.max_iterations - it - 1)
         mean_std = float(torch.exp(ac.logstd).mean().item())
 
         if writer is not None:
@@ -183,10 +216,10 @@ def main():
 
         # ---- 保存 ----
         if (it + 1) % cfg.runner.save_interval == 0:
-            torch.save(checkpoint_state(it, ac, normalizer, cfg),
+            torch.save(checkpoint_state(it, ac, normalizer, cfg, ppo),
                        os.path.join(log_dir, f"model_{it + 1}.pt"))
 
-    torch.save(checkpoint_state(cfg.runner.max_iterations, ac, normalizer, cfg),
+    torch.save(checkpoint_state(cfg.runner.max_iterations, ac, normalizer, cfg, ppo),
                os.path.join(log_dir, f"model_{cfg.runner.max_iterations}.pt"))
     print(f"日志目录: {log_dir}")
 

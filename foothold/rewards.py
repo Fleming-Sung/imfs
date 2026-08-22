@@ -148,6 +148,15 @@ class Rewards:
     def _reward_base_height(self):
         return (self.env.base_position[:, 2] - self.cfg.rewards.base_height_target) ** 2 * self.env.dt
 
+    def _reward_body_contacts(self):
+        # 膝盖/大腿等身体部件接触地面时惩罚（净接触力 z 分量超过阈值即计数）
+        if self.env.body_contact_indices.numel() == 0:
+            return torch.zeros(self.env.num_envs, device=self.env.device)
+        threshold = getattr(self.cfg.rewards, "body_contacts_threshold", 1.0)
+        contact = (self.env.contact_forces[:, self.env.body_contact_indices, 2]
+                   > threshold).float()
+        return contact.sum(dim=1) * self.env.dt
+
     def _reward_action_rate(self):
         # 论文用 ||a_t - a_{t-1}||²，last_actions[:, :, 0] 存的是上一步 policy action
         # hold_still 时系数翻倍

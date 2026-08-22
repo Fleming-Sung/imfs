@@ -244,6 +244,15 @@ class FootholdEnv:
                     self.envs[0], self.actor_handles[0], name))
         self.feet_indices = torch.tensor(foot_idx, dtype=torch.long, device=self.device)
 
+        # 触地惩罚 body 索引（膝盖/大腿等：abad/hip/knee 链接）
+        penalty_idx = []
+        penalty_names = list(getattr(cfg.rewards, "contact_penalty_bodies", []) or [])
+        for name in body_names:
+            if any(key in name for key in penalty_names):
+                penalty_idx.append(self.gym.find_actor_rigid_body_handle(
+                    self.envs[0], self.actor_handles[0], name))
+        self.body_contact_indices = torch.tensor(penalty_idx, dtype=torch.long, device=self.device)
+
     def _build_dof_tensors(self, dof_props):
         cfg = self.cfg
         n = self.num_dof
