@@ -1,0 +1,65 @@
+{
+  "seed": 7,
+  "device": "cuda:0",
+  "lower_policy_dt_s": 0.02,
+  "upper_decision_dt_s": 0.5,
+  "depth": {
+    "height": 64,
+    "width": 64,
+    "near_m": 0.10,
+    "far_m": 3.00,
+    "horizontal_fov_deg": 86.0,
+    "mount_xyz_base_m": [0.13223, 0.02220, -0.26826],
+    "mount_rpy_base_rad": [0.0, 1.063778179, 0.0]
+  },
+  "upper_observation": {
+    "proprio_dim": 36,
+    "depth_channels": 1,
+    "latent_dim": 128
+  },
+  "action": {
+    "forward_m": [0.08, 0.16],
+    "lateral_abs_m": [0.18, 0.24],
+    "yaw_deg": [-5.0, 5.0],
+    "z_m": 0.0
+  },
+  "action_polar": {
+    "distance_m": [0.07, 0.30],
+    "direction_deg": [-90.0, 90.0],
+    "yaw_deg": [-30.0, 30.0],
+    "minimum_lateral_abs_m": 0.10,
+    "z_m": 0.0
+  },
+  "action_polar_course": {
+    "distance_m": [0.07, 0.22],
+    "direction_deg": [-35.0, 35.0],
+    "yaw_deg": [-15.0, 15.0],
+    "minimum_lateral_abs_m": 0.10,
+    "z_m": 0.0
+  },
+  "action_cartesian_course": {
+    "forward_m": [0.08, 0.30],
+    "lateral_abs_m": [0.10, 0.26],
+    "yaw_deg": [-12.0, 12.0],
+    "z_m": 0.0
+  },
+  "model": {
+    "hidden_dim": 256,
+    "planning_horizon": 5,
+    "discount": 0.99,
+    "cem_candidates": 512,
+    "cem_elites": 64,
+    "cem_iterations": 5,
+    "cem_min_std": 0.05,
+    "reward_scale": 10.0
+  },
+  "reward": {
+    "progress": 1.0,
+    "time": -0.02,
+    "goal": 10.0,
+    "collision": -5.0,
+    "fall": -5.0,
+    "off_support": -3.0,
+    "collision_force_threshold_n": 5.0
+  }
+}

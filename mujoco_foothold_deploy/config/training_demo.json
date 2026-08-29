@@ -1,0 +1,18 @@
+{
+  "scenario": "training_demo",
+  "seed": 7,
+  "support_height": 0.0,
+  "step_distance": [0.1, 0.1],
+  "step_angle_deg": [-3.0, 3.0],
+  "movement_direction_deg": [-180.0, 180.0],
+  "target_yaw_deg": [-5.0, 5.0],
+  "minimum_lateral_separation": 0.20,
+  "landing_tolerance": 0.10,
+  "duration_s": 50.0,
+  "camera_distance": 2,
+  "camera_azimuth_deg": 150.0,
+  "camera_elevation_deg": -25.0,
+  "video_fps": 50,
+  "video_width": 960,
+  "video_height": 720
+}

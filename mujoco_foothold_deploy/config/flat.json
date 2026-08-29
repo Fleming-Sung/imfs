@@ -1,0 +1,20 @@
+{
+  "scenario": "flat",
+  "seed": 7,
+  "support_height": 0.25,
+  "num_footholds": 50,
+  "platform_margin": 1.0,
+  "platform_half_width": 1.0,
+  "longitudinal_spacing": [0.15, 0.15],
+  "nominal_half_width": 0.10,
+  "lateral_jitter": 0.0,
+  "landing_tolerance": 0.10,
+  "gait_frequency": 1.0,
+  "duration_s": 20.0,
+  "camera_distance": 2.0,
+  "camera_azimuth_deg": 150.0,
+  "camera_elevation_deg": -8.0,
+  "video_fps": 50,
+  "video_width": 960,
+  "video_height": 720
+}

@@ -1,0 +1,9 @@
+name: mujoco
+dependencies:
+  - python=3.10
+  - numpy
+  - pytorch
+  - pip
+  - pip:
+      - mujoco==3.2.3
+# Full-duration MP4 recording also requires the ffmpeg executable on PATH.

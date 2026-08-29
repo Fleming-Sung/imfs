@@ -1,0 +1,22 @@
+{
+  "checkpoint": {
+    "path": "checkpoints/model_7000.pt",
+    "source": "../logs/Aug22_15-09-21/model_7000.pt",
+    "sha256": "f88a9f8ebdf64e1c976daf9182e73f7b801b057f50b45d4fe9505230ced786e2"
+  },
+  "training_config": {
+    "path": "checkpoints/training_config.json",
+    "source": "../logs/Aug22_15-09-21/config.json",
+    "sha256": "f401c06459e930c40a69fea3e0f892a8a1992b93449cbc8d70fd3aecf385e53d"
+  },
+  "official_mujoco_model": {
+    "path": "assets/SF_TRON1A/xml/robot_official.xml",
+    "source": "/home/fleming/workspace/mpc_limX_ws/src/robot-description/pointfoot/SF_TRON1A/xml/robot.xml",
+    "sha256": "ad4c6af61c278903bd89d9a17206e1c46eb9b93792c9a8fe34dd539cb971edea"
+  },
+  "official_urdf": {
+    "path": "assets/SF_TRON1A/urdf/robot_official.urdf",
+    "source": "/home/fleming/workspace/mpc_limX_ws/src/robot-description/pointfoot/SF_TRON1A/urdf/robot.urdf",
+    "sha256": "177867b287ac1f30866b7a46544512bc81e017873f7f1fad7e0e43be59ddac78"
+  }
+}

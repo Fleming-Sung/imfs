@@ -30,6 +30,27 @@ joint_curves.png
 joint_data.npz
 joint_torques.png
 
+# ---- 实验 / 模型 / 部署产物 ----
+experiments/
+checkpoints/
+outputs/
+*.npz
+*.mp4
+*.zip
+
+# ---- 日志 ----
+*.log
+
+# ---- LaTeX 构建产物 ----
+*.aux
+*.out
+*.toc
+*.snm
+*.nav
+*.bbl
+*.blg
+*.synctex.gz
+
 # ---- 系统文件 ----
 .DS_Store
 Thumbs.db
