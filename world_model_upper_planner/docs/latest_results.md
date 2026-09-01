@@ -1,0 +1,73 @@
+# Automatically indexed closed-loop results
+
+Generated from preserved `metrics.json` files. Videos and trajectories remain in the same result folders.
+
+| run | mode | env x seconds | success | falls | progress/option | touchdown | candidates | evidence |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| h1_v1_model_score_seed924_30s | model_score | 64 x 30 | 67.6% (194/287) | 93 | 0.199 m | 0.033 m | 18 | `experiments/h1_v1_model_score_seed924_30s/metrics.json` |
+| h1_v1_prior_seed924_30s | prior | 64 x 30 | 68.9% (197/286) | 89 | 0.202 m | 0.034 m | 53 | `experiments/h1_v1_prior_seed924_30s/metrics.json` |
+| h3_v1_beam_seed924_30s | beam | 64 x 30 | 77.1% (222/288) | 66 | 0.212 m | 0.030 m | 77 | `experiments/h3_v1_beam_seed924_30s/metrics.json` |
+| h3_v1_beam_seed924_probe | beam | 16 x 12 | 94.7% (18/19) | 1 | 0.218 m | 0.024 m | 40 | `experiments/h3_v1_beam_seed924_probe/metrics.json` |
+| h3_v1_model_score_seed924_30s | model_score | 64 x 30 | 59.5% (178/299) | 121 | 0.202 m | 0.034 m | 16 | `experiments/h3_v1_model_score_seed924_30s/metrics.json` |
+| h3_v1_prior_seed924_30s | prior | 64 x 30 | 63.6% (182/286) | 104 | 0.200 m | 0.034 m | 58 | `experiments/h3_v1_prior_seed924_30s/metrics.json` |
+| hard_random_v1_seed1301 | beam | 32 x 25 | 5.8% (10/171) | 161 | 0.169 m | 0.074 m | 78 | `experiments/hard_random_v1_seed1301/metrics.json` |
+| hard_random_v2_seed1301 | beam | 32 x 25 | 7.0% (11/158) | 147 | 0.165 m | 0.077 m | 77 | `experiments/hard_random_v2_seed1301/metrics.json` |
+| multiseed_v2_edge_cases_seed1202 | beam | 32 x 20 | 80.9% (72/89) | 17 | 0.216 m | 0.030 m | 63 | `experiments/multiseed_v2_edge_cases_seed1202/metrics.json` |
+| multiseed_v2_edge_cases_seed1203 | beam | 32 x 20 | 59.2% (58/98) | 40 | 0.198 m | 0.038 m | 55 | `experiments/multiseed_v2_edge_cases_seed1203/metrics.json` |
+| multiseed_v2_household_seed1202 | beam | 32 x 20 | 60.5% (46/76) | 30 | 0.181 m | 0.047 m | 42 | `experiments/multiseed_v2_household_seed1202/metrics.json` |
+| multiseed_v2_household_seed1203 | beam | 32 x 20 | 56.2% (50/89) | 39 | 0.189 m | 0.046 m | 43 | `experiments/multiseed_v2_household_seed1203/metrics.json` |
+| multiseed_v2_mixed_seed1202 | beam | 32 x 20 | 47.7% (42/88) | 46 | 0.186 m | 0.040 m | 64 | `experiments/multiseed_v2_mixed_seed1202/metrics.json` |
+| multiseed_v2_mixed_seed1203 | beam | 32 x 20 | 52.0% (51/98) | 47 | 0.192 m | 0.041 m | 60 | `experiments/multiseed_v2_mixed_seed1203/metrics.json` |
+| multiseed_v2_random_composite_seed1202 | beam | 32 x 20 | 60.8% (59/97) | 38 | 0.204 m | 0.038 m | 54 | `experiments/multiseed_v2_random_composite_seed1202/metrics.json` |
+| multiseed_v2_random_composite_seed1203 | beam | 32 x 20 | 81.1% (73/90) | 17 | 0.211 m | 0.033 m | 52 | `experiments/multiseed_v2_random_composite_seed1203/metrics.json` |
+| multiseed_v2_stepping_stones_seed1202 | beam | 32 x 20 | 63.7% (58/91) | 33 | 0.193 m | 0.036 m | 61 | `experiments/multiseed_v2_stepping_stones_seed1202/metrics.json` |
+| multiseed_v2_stepping_stones_seed1203 | beam | 32 x 20 | 66.3% (61/92) | 31 | 0.202 m | 0.034 m | 63 | `experiments/multiseed_v2_stepping_stones_seed1203/metrics.json` |
+| multiseed_v2_turns_seed1202 | beam | 32 x 20 | 25.2% (26/103) | 77 | 0.172 m | 0.060 m | 56 | `experiments/multiseed_v2_turns_seed1202/metrics.json` |
+| multiseed_v2_turns_seed1203 | beam | 32 x 20 | 11.5% (12/104) | 92 | 0.158 m | 0.071 m | 54 | `experiments/multiseed_v2_turns_seed1203/metrics.json` |
+| pipeline_smoke_seed61_beam_seed924 | beam | 4 x 6 | 0.0% (0/2) | 2 | 0.229 m | 0.034 m | 1 | `experiments/pipeline_smoke_seed61_beam_seed924/metrics.json` |
+| pipeline_smoke_seed61_model_score_seed924 | model_score | 4 x 6 | 0.0% (0/3) | 3 | 0.204 m | 0.045 m | 1 | `experiments/pipeline_smoke_seed61_model_score_seed924/metrics.json` |
+| pipeline_smoke_seed61_prior_seed924 | prior | 4 x 6 | 0.0% (0/2) | 2 | 0.229 m | 0.034 m | 1 | `experiments/pipeline_smoke_seed61_prior_seed924/metrics.json` |
+| seed_scan_h3_123 | beam | 1 x 20 | 66.7% (2/3) | 1 | 0.226 m | 0.031 m | 10 | `experiments/seed_scan_h3_123/metrics.json` |
+| seed_scan_h3_31 | beam | 1 x 20 | 100.0% (3/3) | 0 | 0.224 m | 0.020 m | 11 | `experiments/seed_scan_h3_31/metrics.json` |
+| seed_scan_h3_333 | beam | 1 x 20 | 66.7% (2/3) | 1 | 0.231 m | 0.024 m | 11 | `experiments/seed_scan_h3_333/metrics.json` |
+| seed_scan_h3_42 | beam | 1 x 20 | 100.0% (3/3) | 0 | 0.241 m | 0.023 m | 10 | `experiments/seed_scan_h3_42/metrics.json` |
+| seed_scan_h3_777 | beam | 1 x 20 | 100.0% (3/3) | 0 | 0.215 m | 0.023 m | 14 | `experiments/seed_scan_h3_777/metrics.json` |
+| seed_scan_h3_924 | beam | 1 x 20 | 100.0% (2/2) | 0 | 0.217 m | 0.023 m | 14 | `experiments/seed_scan_h3_924/metrics.json` |
+| terrain_map_v1_edge_cases_seed1201 | beam | 32 x 20 | 80.7% (71/88) | 17 | 0.213 m | 0.030 m | 51 | `experiments/terrain_map_v1_edge_cases_seed1201/metrics.json` |
+| terrain_map_v1_household_seed1201 | beam | 32 x 20 | 25.2% (27/107) | 80 | 0.191 m | 0.077 m | 42 | `experiments/terrain_map_v1_household_seed1201/metrics.json` |
+| terrain_map_v1_mixed_seed1201 | beam | 32 x 20 | 52.9% (55/104) | 49 | 0.203 m | 0.043 m | 52 | `experiments/terrain_map_v1_mixed_seed1201/metrics.json` |
+| terrain_map_v1_random_composite_seed1201 | beam | 32 x 20 | 64.7% (66/102) | 36 | 0.213 m | 0.037 m | 56 | `experiments/terrain_map_v1_random_composite_seed1201/metrics.json` |
+| terrain_map_v1_stepping_stones_seed1201 | beam | 32 x 20 | 60.6% (60/99) | 39 | 0.205 m | 0.037 m | 53 | `experiments/terrain_map_v1_stepping_stones_seed1201/metrics.json` |
+| terrain_map_v1_turns_seed1201 | beam | 32 x 20 | 8.2% (10/122) | 112 | 0.177 m | 0.064 m | 50 | `experiments/terrain_map_v1_turns_seed1201/metrics.json` |
+| terrain_map_v2_edge_cases_seed1201 | beam | 32 x 20 | 81.6% (71/87) | 16 | 0.217 m | 0.031 m | 56 | `experiments/terrain_map_v2_edge_cases_seed1201/metrics.json` |
+| terrain_map_v2_household_seed1201 | beam | 32 x 20 | 58.5% (38/65) | 27 | 0.165 m | 0.049 m | 40 | `experiments/terrain_map_v2_household_seed1201/metrics.json` |
+| terrain_map_v2_mixed_seed1201 | beam | 32 x 20 | 61.3% (57/93) | 36 | 0.196 m | 0.038 m | 60 | `experiments/terrain_map_v2_mixed_seed1201/metrics.json` |
+| terrain_map_v2_random_composite_seed1201 | beam | 32 x 20 | 71.3% (67/94) | 27 | 0.208 m | 0.034 m | 60 | `experiments/terrain_map_v2_random_composite_seed1201/metrics.json` |
+| terrain_map_v2_stepping_stones_seed1201 | beam | 32 x 20 | 70.8% (63/89) | 26 | 0.202 m | 0.032 m | 61 | `experiments/terrain_map_v2_stepping_stones_seed1201/metrics.json` |
+| terrain_map_v2_turns_seed1201 | beam | 32 x 20 | 13.6% (15/110) | 95 | 0.169 m | 0.062 m | 59 | `experiments/terrain_map_v2_turns_seed1201/metrics.json` |
+| terrain_map_v3_edge_cases_seed1201 | beam | 32 x 20 | 74.5% (73/98) | 25 | 0.225 m | 0.029 m | 53 | `experiments/terrain_map_v3_edge_cases_seed1201/metrics.json` |
+| terrain_map_v3_household_seed1201 | beam | 32 x 20 | 77.8% (63/81) | 18 | 0.198 m | 0.036 m | 30 | `experiments/terrain_map_v3_household_seed1201/metrics.json` |
+| terrain_map_v3_mixed_seed1201 | beam | 32 x 20 | 59.8% (58/97) | 39 | 0.205 m | 0.035 m | 58 | `experiments/terrain_map_v3_mixed_seed1201/metrics.json` |
+| terrain_map_v3_random_composite_seed1201 | beam | 32 x 20 | 66.0% (66/100) | 34 | 0.214 m | 0.039 m | 53 | `experiments/terrain_map_v3_random_composite_seed1201/metrics.json` |
+| terrain_map_v3_stepping_stones_seed1201 | beam | 32 x 20 | 48.6% (51/105) | 54 | 0.201 m | 0.038 m | 57 | `experiments/terrain_map_v3_stepping_stones_seed1201/metrics.json` |
+| terrain_map_v3_turns_seed1201 | beam | 32 x 20 | 7.6% (8/105) | 97 | 0.160 m | 0.056 m | 51 | `experiments/terrain_map_v3_turns_seed1201/metrics.json` |
+| terrain_map_v3policy_edge_cases_seed1201 | beam | 32 x 20 | 77.2% (71/92) | 21 | 0.215 m | 0.031 m | 60 | `experiments/terrain_map_v3policy_edge_cases_seed1201/metrics.json` |
+| terrain_map_v3policy_household_seed1201 | beam | 32 x 20 | 63.8% (44/69) | 25 | 0.172 m | 0.045 m | 41 | `experiments/terrain_map_v3policy_household_seed1201/metrics.json` |
+| terrain_map_v3policy_mixed_seed1201 | beam | 32 x 20 | 57.9% (55/95) | 40 | 0.196 m | 0.036 m | 55 | `experiments/terrain_map_v3policy_mixed_seed1201/metrics.json` |
+| terrain_map_v3policy_random_composite_seed1201 | beam | 32 x 20 | 67.3% (66/98) | 32 | 0.210 m | 0.039 m | 61 | `experiments/terrain_map_v3policy_random_composite_seed1201/metrics.json` |
+| terrain_map_v3policy_stepping_stones_seed1201 | beam | 32 x 20 | 55.2% (53/96) | 43 | 0.196 m | 0.036 m | 64 | `experiments/terrain_map_v3policy_stepping_stones_seed1201/metrics.json` |
+| terrain_map_v3policy_turns_seed1201 | beam | 32 x 20 | 8.0% (9/112) | 103 | 0.163 m | 0.065 m | 54 | `experiments/terrain_map_v3policy_turns_seed1201/metrics.json` |
+| turns_horizon1_v2_seed1201 | beam | 32 x 20 | 14.9% (17/114) | 97 | 0.172 m | 0.057 m | 34 | `experiments/turns_horizon1_v2_seed1201/metrics.json` |
+| turns_horizon2_v2_seed1201 | beam | 32 x 20 | 14.3% (16/112) | 96 | 0.168 m | 0.063 m | 49 | `experiments/turns_horizon2_v2_seed1201/metrics.json` |
+| turns_horizon3_v2_seed1201 | beam | 32 x 20 | 15.4% (16/104) | 88 | 0.163 m | 0.063 m | 52 | `experiments/turns_horizon3_v2_seed1201/metrics.json` |
+| turns_horizon5_v2_seed1201 | beam | 32 x 20 | 10.8% (12/111) | 99 | 0.166 m | 0.059 m | 58 | `experiments/turns_horizon5_v2_seed1201/metrics.json` |
+| h1_v1_model_score_seed924_15s | model_score | 1 x 15 | 100.0% (2/2) | 0 | 0.226 m | 0.023 m | 8 | `experiments/videos/h1_v1_model_score_seed924_15s/metrics.json` |
+| h1_v1_prior_seed42_15s | prior | 1 x 15 | 100.0% (1/1) | 0 | 0.190 m | 0.042 m | 14 | `experiments/videos/h1_v1_prior_seed42_15s/metrics.json` |
+| h3_v1_beam_seed123_20s | beam | 1 x 20 | 66.7% (2/3) | 1 | 0.224 m | 0.032 m | 9 | `experiments/videos/h3_v1_beam_seed123_20s/metrics.json` |
+| h3_v1_beam_seed333_20s | beam | 1 x 20 | 100.0% (3/3) | 0 | 0.230 m | 0.028 m | 9 | `experiments/videos/h3_v1_beam_seed333_20s/metrics.json` |
+| h3_v1_beam_seed42_20s | beam | 1 x 20 | 100.0% (3/3) | 0 | 0.241 m | 0.023 m | 10 | `experiments/videos/h3_v1_beam_seed42_20s/metrics.json` |
+| terrain_map_v1_household_seed1201_15s | beam | 1 x 15 | 50.0% (1/2) | 1 | 0.228 m | 0.029 m | 8 | `experiments/videos/terrain_map_v1_household_seed1201_15s/metrics.json` |
+| terrain_map_v1_turns_seed1201_15s | beam | 1 x 15 | 0.0% (0/3) | 3 | 0.139 m | 0.061 m | 10 | `experiments/videos/terrain_map_v1_turns_seed1201_15s/metrics.json` |
+| terrain_map_v2_household_seed1201_15s | beam | 1 x 15 | 0.0% (0/1) | 1 | 0.139 m | 0.037 m | 9 | `experiments/videos/terrain_map_v2_household_seed1201_15s/metrics.json` |
+| terrain_map_v2_household_seed1202_15s | beam | 1 x 15 | 100.0% (2/2) | 0 | 0.245 m | 0.019 m | 10 | `experiments/videos/terrain_map_v2_household_seed1202_15s/metrics.json` |
+| terrain_map_v2_turns_seed1201_15s | beam | 1 x 15 | 0.0% (0/2) | 2 | 0.144 m | 0.040 m | 12 | `experiments/videos/terrain_map_v2_turns_seed1201_15s/metrics.json` |
