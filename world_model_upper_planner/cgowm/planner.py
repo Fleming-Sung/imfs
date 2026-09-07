@@ -22,6 +22,7 @@ class PlannerConfig:
     touchdown_error_weight: float = 0.0
     reward_weight: float = 0.0
     progress_weight: float = 10.0
+    value_weight: float = 1.0
     terminal_value_weight: float = 0.1
     feasibility_threshold: float = 0.0
     fall_logit_scale: float = 1.0
@@ -70,6 +71,7 @@ class BeamPlanner:
                 indices = available[local_top]
                 q = prediction["q"][:, 0, indices]
                 uncertainty = q.std(dim=0, unbiased=False)
+                value = q.min(0).values
                 if self.risk_model is None:
                     fall = torch.sigmoid(
                         self.config.fall_logit_scale
@@ -91,6 +93,7 @@ class BeamPlanner:
                 continuation = torch.sigmoid(
                     prediction["continuation_logit"][0, indices])
                 score = (reward
+                         + self.config.value_weight * value
                          - self.config.uncertainty_weight * uncertainty
                          - self.config.fall_weight * fall
                          - self.config.collision_weight * collision
@@ -170,6 +173,7 @@ class VectorizedBeamPlanner:
             q_selected = torch.gather(
                 q, -1, index[None].expand(q.shape[0], -1, -1, -1))
             uncertainty = q_selected.std(0, unbiased=False)
+            value = q_selected.min(0).values
             if self.risk_model is None:
                 fall = torch.sigmoid(
                     self.config.fall_logit_scale * gather(prediction["fall_logit"])
@@ -194,6 +198,7 @@ class VectorizedBeamPlanner:
             score = (
                 self.config.reward_weight * reward
                 + self.config.progress_weight * progress
+                + self.config.value_weight * value
                 - self.config.uncertainty_weight * uncertainty
                 - self.config.fall_weight * fall
                 - self.config.collision_weight * collision

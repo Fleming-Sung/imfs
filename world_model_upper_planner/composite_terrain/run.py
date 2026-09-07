@@ -33,9 +33,11 @@ def main():
     p.add_argument("--difficulty_levels",default='',help='comma-separated training levels, balanced across map layouts')
     p.add_argument("--horizon",type=int,default=3)
     p.add_argument("--proposals_per_beam",type=int,default=8,
-                   help='root/action proposal coverage; 180 evaluates the full fixed action grid')
+                   help='root/action proposal coverage; equals the full grid size to evaluate every candidate')
     p.add_argument("--physical_reward_weight",type=float,default=0.0,
                    help="anchored planner: blend geometric surrogate with learned actual execution reward [0,1]")
+    p.add_argument("--value_weight",type=float,default=1.0,
+                   help="planner: weight of the learned twin-Q long-term value in the candidate score")
     p.add_argument("--goal_cost_radius",type=float,default=0.0,
                    help="within this goal distance, compute progress from learned body motion; zero disables")
     p.add_argument("--root_geometry_guard",action="store_true",
@@ -93,6 +95,9 @@ def main():
         env.navigation_labels=NavigationLabels(env)
     lower=FrozenLowerPolicy(args.lower_checkpoint,env.device)
     grid=candidates(env.device); n=env.num_envs
+    # Smallest in-place step (dx=min, dy=min, dz=0, yaw=0): a stable fallback
+    # when no candidate is geometrically valid on the current observation.
+    min_step=((grid-grid.new_tensor([-1.,-1.,0.,0.])).abs().sum(-1)).argmin()
     proprio_dim=75
     if args.behavior=="model":
         ck=torch.load(args.checkpoint,map_location=env.device)
@@ -104,7 +109,7 @@ def main():
         if not torch.equal(model.candidates,grid): raise ValueError("candidate contract changed")
         if not 1 <= args.proposals_per_beam <= len(grid):
             raise ValueError('proposals_per_beam must be within the fixed action grid')
-        planner=VectorizedBeamPlanner(model,PlannerConfig(horizon=args.horizon,beam_width=16,proposals_per_beam=args.proposals_per_beam,support_weight=3.0,reward_weight=args.physical_reward_weight))
+        planner=VectorizedBeamPlanner(model,PlannerConfig(horizon=args.horizon,beam_width=16,proposals_per_beam=args.proposals_per_beam,support_weight=3.0,reward_weight=args.physical_reward_weight,value_weight=args.value_weight))
         if args.motion_checkpoint:
             from .anchored import MotionModel,AnchoredPlanner
             motion_ck=torch.load(args.motion_checkpoint,map_location=env.device,weights_only=False)
@@ -222,9 +227,12 @@ def main():
                     if args.root_geometry_guard:
                         mask=geo["candidate_valid"].clone()
                         empty=~mask.any(-1)
-                        # No valid option is a real failure state; select the
-                        # best currently observed support, never teleport/reset.
-                        mask[empty]=geo["candidate_support"][empty]>=geo["candidate_support"][empty].max(-1,keepdim=True).values
+                        # No valid option is a real failure state. Fall back to
+                        # the smallest in-place step instead of committing to a
+                        # geometrically-invalid candidate; never teleport/reset.
+                        if empty.any():
+                            mask[empty]=False
+                            mask[empty,min_step]=True
                     if args.motion_checkpoint:
                         selection,_=planner.plan(image,proprio,map_cache,mask)
                     else:

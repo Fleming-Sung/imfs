@@ -6,7 +6,7 @@ from adapters.frozen_lower_env.upper_state import build_proprio
 
 
 def candidates(device):
-    axes=[torch.linspace(-1,1,n,device=device) for n in (4,3,5,3)]
+    axes=[torch.linspace(-1,1,n,device=device) for n in (4,3,9,3)]
     return torch.stack(torch.meshgrid(*axes,indexing="ij"),-1).reshape(-1,4)
 
 

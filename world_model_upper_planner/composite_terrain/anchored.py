@@ -138,9 +138,12 @@ class AnchoredPlanner:
             index=logits.topk(count,dim=-1).indices
             def gather(v):return torch.gather(v.view(batch,beams,-1),-1,index)
             q=prediction['q'].view(2,batch,beams,-1)
-            qstd=torch.gather(q,-1,index[None].expand(2,-1,-1,-1)).std(0,unbiased=False)
+            q_sel=torch.gather(q,-1,index[None].expand(2,-1,-1,-1))
+            qstd=q_sel.std(0,unbiased=False)
+            q_value=q_sel.min(0).values
             fall_probability,collision_probability=self.risk_probabilities(latent,flat_state,self.world.candidates,prediction)
             score=cfg.progress_weight*gather(prediction['progress'])-cfg.support_weight*(1-gather(prediction['support']))
+            score+=cfg.value_weight*q_value
             score-=cfg.fall_weight*gather(fall_probability)
             score-=cfg.collision_weight*gather(collision_probability)
             if cfg.reward_weight:
