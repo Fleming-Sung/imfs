@@ -1,0 +1,207 @@
+{
+  "replay_per_family": {
+    "ramp": {
+      "transitions": 92450,
+      "fall_rate": 0.009637641968631693,
+      "collision_rate": 0.017209302325581394,
+      "mean_valid_candidates": 39.32219696044922,
+      "frac_states_le3_valid": 0.01609518658734451,
+      "frac_states_zero_valid": 0.012796106003244998,
+      "mean_chosen_support": 0.9783666729927063,
+      "mean_touchdown_xy": 0.05560768023133278,
+      "mean_abs_dz": 0.20632775127887726
+    },
+    "stairs": {
+      "transitions": 103827,
+      "fall_rate": 0.031427278068325196,
+      "collision_rate": 0.0482533445057644,
+      "mean_valid_candidates": 30.18036651611328,
+      "frac_states_le3_valid": 0.03187995415450701,
+      "frac_states_zero_valid": 0.025744748475829988,
+      "mean_chosen_support": 0.8988028168678284,
+      "mean_touchdown_xy": 0.08334600925445557,
+      "mean_abs_dz": 0.30094292759895325
+    },
+    "stones": {
+      "transitions": 88463,
+      "fall_rate": 0.13320823395091733,
+      "collision_rate": 0.18590823282050123,
+      "mean_valid_candidates": 19.71327018737793,
+      "frac_states_le3_valid": 0.2527723455003787,
+      "frac_states_zero_valid": 0.1966471858291037,
+      "mean_chosen_support": 0.6993658542633057,
+      "mean_touchdown_xy": 0.14516188204288483,
+      "mean_abs_dz": 0.34290608763694763
+    },
+    "bridge": {
+      "transitions": 89901,
+      "fall_rate": 0.04963237338850513,
+      "collision_rate": 0.05704052235236538,
+      "mean_valid_candidates": 29.844562530517578,
+      "frac_states_le3_valid": 0.08796342643574599,
+      "frac_states_zero_valid": 0.06419283433999622,
+      "mean_chosen_support": 0.9047062993049622,
+      "mean_touchdown_xy": 0.07694648951292038,
+      "mean_abs_dz": 0.12490405887365341
+    },
+    "slalom": {
+      "transitions": 96728,
+      "fall_rate": 0.04511620213381854,
+      "collision_rate": 0.23761475477627989,
+      "mean_valid_candidates": 31.855905532836914,
+      "frac_states_le3_valid": 0.07274005458605574,
+      "frac_states_zero_valid": 0.05156728144901166,
+      "mean_chosen_support": 0.9455173015594482,
+      "mean_touchdown_xy": 0.07431232184171677,
+      "mean_abs_dz": 0.12458129972219467
+    },
+    "rough": {
+      "transitions": 100592,
+      "fall_rate": 0.020011531732145697,
+      "collision_rate": 0.038372832829648484,
+      "mean_valid_candidates": 35.01036834716797,
+      "frac_states_le3_valid": 0.03220932082074121,
+      "frac_states_zero_valid": 0.026582630825512963,
+      "mean_chosen_support": 0.92718106508255,
+      "mean_touchdown_xy": 0.07619649916887283,
+      "mean_abs_dz": 0.20328156650066376
+    },
+    "curved_bridge": {
+      "transitions": 98847,
+      "fall_rate": 0.08002266128461157,
+      "collision_rate": 0.08410978583062713,
+      "mean_valid_candidates": 27.425222396850586,
+      "frac_states_le3_valid": 0.1566663631673192,
+      "frac_states_zero_valid": 0.12451566562465224,
+      "mean_chosen_support": 0.8429694175720215,
+      "mean_touchdown_xy": 0.09912559390068054,
+      "mean_abs_dz": 0.15661577880382538
+    }
+  },
+  "eval_per_family": {
+    "ramp": {
+      "fall": 4,
+      "timeout": 0,
+      "success": 1,
+      "total": 5,
+      "mean_max_x": 7.032003021240234
+    },
+    "stairs": {
+      "fall": 71,
+      "timeout": 0,
+      "success": 4,
+      "total": 75,
+      "mean_max_x": 5.916585636138916
+    },
+    "stones": {
+      "fall": 312,
+      "timeout": 0,
+      "success": 3,
+      "total": 315,
+      "mean_max_x": 5.797212022826785
+    },
+    "bridge": {
+      "fall": 6,
+      "timeout": 0,
+      "success": 3,
+      "total": 9,
+      "mean_max_x": 10.331119749281141
+    },
+    "slalom": {
+      "fall": 13,
+      "timeout": 0,
+      "success": 3,
+      "total": 16,
+      "mean_max_x": 8.676563799381256
+    },
+    "rough": {
+      "fall": 5,
+      "timeout": 0,
+      "success": 0,
+      "total": 5,
+      "mean_max_x": 8.077189636230468
+    },
+    "curved_bridge": {
+      "fall": 44,
+      "timeout": 0,
+      "success": 2,
+      "total": 46,
+      "mean_max_x": 6.162952609684156
+    }
+  },
+  "fall_vs_safe": {
+    "fall_states": 34687,
+    "fall_mean_valid": 7.2806525230407715,
+    "safe_mean_valid": 31.845041275024414,
+    "fall_mean_abs_dz": 0.5373626947402954,
+    "safe_mean_abs_dz": 0.19056908786296844,
+    "fall_mean_support": 0.09432929009199142,
+    "safe_mean_support": 0.9302475452423096
+  },
+  "dz_histogram_bins": [
+    "<-8",
+    "-8..-4",
+    "-4..0",
+    "0..4",
+    "4..8",
+    ">8"
+  ],
+  "dz_histogram": {
+    "ramp": [
+      0,
+      2526,
+      18004,
+      59238,
+      10270,
+      2412
+    ],
+    "stairs": [
+      0,
+      8705,
+      19868,
+      54501,
+      16292,
+      4461
+    ],
+    "stones": [
+      0,
+      7753,
+      17286,
+      42617,
+      13737,
+      7070
+    ],
+    "bridge": [
+      0,
+      3333,
+      5942,
+      74052,
+      3298,
+      3276
+    ],
+    "slalom": [
+      0,
+      3695,
+      6928,
+      79599,
+      3229,
+      3277
+    ],
+    "rough": [
+      0,
+      4877,
+      18348,
+      67522,
+      6895,
+      2950
+    ],
+    "curved_bridge": [
+      0,
+      4669,
+      7479,
+      77245,
+      4763,
+      4691
+    ]
+  }
+}
