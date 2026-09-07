@@ -17,7 +17,7 @@ import time
 
 def main():
     os.chdir(Path(__file__).resolve().parents[1])
-    name = 'composite3d_value_h3'
+    name = 'composite3d_value_h3_v2'
     root = Path('experiments/composite3d') / name
     root.mkdir(parents=True, exist_ok=True)
     journal = root / 'stages.jsonl'
@@ -25,7 +25,7 @@ def main():
 
     lower = 'runs/lower3d_v3_z06/model_8201.pt'
     difficulty_levels = '.3,.5,.7'
-    shard_seeds = list(range(9431, 9439))  # 8 shards
+    shard_seeds = list(range(9441, 9449))  # 8 shards
     eval_seeds = [9801, 9901]
     eval_difficulty = '.5'
     h1_updates, h3_updates = 20000, 10000

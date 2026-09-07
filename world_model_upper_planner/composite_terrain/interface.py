@@ -6,7 +6,7 @@ from adapters.frozen_lower_env.upper_state import build_proprio
 
 
 def candidates(device):
-    axes=[torch.linspace(-1,1,n,device=device) for n in (4,3,9,3)]
+    axes=[torch.linspace(-1,1,n,device=device) for n in (4,3,7,3)]
     return torch.stack(torch.meshgrid(*axes,indexing="ij"),-1).reshape(-1,4)
 
 
@@ -38,7 +38,7 @@ def world_targets(env, ids, actions):
     xyz=stance[:,None,:].expand(-1,actions.shape[1],-1).clone()
     xyz[...,0]+=torch.cos(yaw)[:,None]*dx-torch.sin(yaw)[:,None]*dy
     xyz[...,1]+=torch.sin(yaw)[:,None]*dx+torch.cos(yaw)[:,None]*dy
-    xyz[...,2]+=.08*actions[...,2]
+    xyz[...,2]+=.06*actions[...,2]
     return xyz,wrap_to_pi(yaw[:,None]+angle)
 
 

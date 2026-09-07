@@ -38,6 +38,8 @@ def main():
                    help="anchored planner: blend geometric surrogate with learned actual execution reward [0,1]")
     p.add_argument("--value_weight",type=float,default=1.0,
                    help="planner: weight of the learned twin-Q long-term value in the candidate score")
+    p.add_argument("--fallback",choices=["minimal","max_support"],default="max_support",
+                   help="zero-valid fallback: minimal in-place step or max-support candidate")
     p.add_argument("--goal_cost_radius",type=float,default=0.0,
                    help="within this goal distance, compute progress from learned body motion; zero disables")
     p.add_argument("--root_geometry_guard",action="store_true",
@@ -227,12 +229,15 @@ def main():
                     if args.root_geometry_guard:
                         mask=geo["candidate_valid"].clone()
                         empty=~mask.any(-1)
-                        # No valid option is a real failure state. Fall back to
-                        # the smallest in-place step instead of committing to a
-                        # geometrically-invalid candidate; never teleport/reset.
                         if empty.any():
-                            mask[empty]=False
-                            mask[empty,min_step]=True
+                            if args.fallback=="minimal":
+                                # Smallest in-place step; never commit to an
+                                # invalid candidate and never teleport/reset.
+                                mask[empty]=False
+                                mask[empty,min_step]=True
+                            else:
+                                # Step onto the most-supported nearby point.
+                                mask[empty]=geo["candidate_support"][empty]>=geo["candidate_support"][empty].max(-1,keepdim=True).values
                     if args.motion_checkpoint:
                         selection,_=planner.plan(image,proprio,map_cache,mask)
                     else:

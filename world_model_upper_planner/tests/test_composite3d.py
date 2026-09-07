@@ -157,7 +157,7 @@ class Composite3DTest(unittest.TestCase):
         from composite_terrain.trainer import WorldModelTrainer
         from composite_terrain.interface import candidates
         grid=candidates('cpu')
-        self.assertEqual(grid.shape,(324,4))
+        self.assertEqual(grid.shape,(252,4))
         model=CandidateGroundedWorldModel(grid,ModelConfig(proprio_dim=75,
             action_dim=4,geometry_dim=16,dynamics_dim=16,hidden_dim=32))
         trainer=WorldModelTrainer(model)
