@@ -20,13 +20,18 @@ def main():
     p.add_argument("--h1_updates",type=int,default=750);p.add_argument("--h3_updates",type=int,default=750)
     p.add_argument("--batch_size",type=int,default=256);p.add_argument("--seed",type=int,default=9301)
     p.add_argument("--log_every",type=int,default=50,help='TensorBoard scalar cadence in updates')
+    p.add_argument("--hidden_dim",type=int,default=256)
+    p.add_argument("--geometry_dim",type=int,default=64)
+    p.add_argument("--dynamics_dim",type=int,default=64)
     args=p.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(args.seed);np.random.seed(args.seed);torch.set_num_threads(4)
     writer=SummaryWriter(args.output/"tb")
     ds1=SequenceDataset(args.dataset,"cuda:0",1,.2,args.seed)
     ds3=SequenceDataset(args.dataset,"cuda:0",3,.2,args.seed) if args.h3_updates else None
     meta=json.loads((args.dataset.parent/"metrics.json").read_text())
-    cfg=ModelConfig(action_dim=4,proprio_dim=ds1.data["proprio"].shape[-1])
+    cfg=ModelConfig(action_dim=4,proprio_dim=ds1.data["proprio"].shape[-1],
+                    hidden_dim=args.hidden_dim,geometry_dim=args.geometry_dim,
+                    dynamics_dim=args.dynamics_dim)
     model=CandidateGroundedWorldModel(ds1.data["candidates"],cfg).cuda()
     if args.init:
         initial=torch.load(args.init,map_location='cuda:0',weights_only=False)
