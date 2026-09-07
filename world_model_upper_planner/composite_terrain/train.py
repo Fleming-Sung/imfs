@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from cgowm import CandidateGroundedWorldModel,ModelConfig
 from .trainer import WorldModelTrainer,TrainerConfig
 from scripts.train_h3 import validate
@@ -18,8 +19,10 @@ def main():
     p.add_argument("--init",type=Path)
     p.add_argument("--h1_updates",type=int,default=750);p.add_argument("--h3_updates",type=int,default=750)
     p.add_argument("--batch_size",type=int,default=256);p.add_argument("--seed",type=int,default=9301)
+    p.add_argument("--log_every",type=int,default=50,help='TensorBoard scalar cadence in updates')
     args=p.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(args.seed);np.random.seed(args.seed);torch.set_num_threads(4)
+    writer=SummaryWriter(args.output/"tb")
     ds1=SequenceDataset(args.dataset,"cuda:0",1,.2,args.seed)
     ds3=SequenceDataset(args.dataset,"cuda:0",3,.2,args.seed) if args.h3_updates else None
     meta=json.loads((args.dataset.parent/"metrics.json").read_text())
@@ -42,10 +45,16 @@ def main():
             pool=groups[it%len(groups)]
             indices=pool[np.random.randint(len(pool),size=args.batch_size)]
             model.train();metrics=trainer.train_step(dataset.batch(indices))
+            if (it+1)%args.log_every==0:
+                writer.add_scalars(f"train/{stage}",
+                    {k:float(v) for k,v in metrics.items()},it+1)
             if (it+1)%250==0 or it==updates-1:
                 val=validate(trainer,dataset,min(128,args.batch_size),8)
+                writer.add_scalars(f"val/{stage}",
+                    {k:float(v) for k,v in val.items()},it+1)
                 selection_score=float(np.mean([val[f'selection_h{s}_regret']+
                     .25*(1-val[f'selection_h{s}_valid']) for s in range(1,dataset.horizon+1)]))
+                writer.add_scalar(f"selection/{stage}/score",selection_score,it+1)
                 record=dict(stage=stage,updates=it+1,elapsed_seconds=time.perf_counter()-start,
                             train=metrics,validation=val,selection_score=selection_score)
                 with (args.output/"progress.jsonl").open("a") as stream:stream.write(json.dumps(record)+"\n")
@@ -58,6 +67,7 @@ def main():
                 torch.save(state,args.output/f"{stage}_{it+1}.pt")
                 print(json.dumps(dict(stage=stage,update=it+1,val_loss=val["loss_total"],
                     elapsed_seconds=record["elapsed_seconds"])),flush=True)
+    writer.close()
     (args.output/"summary.json").write_text(json.dumps(dict(
         transitions=len(ds1.data["env_id"]),linked_h3_sequences=len(ds3.sequences) if ds3 else None,
         lower_sha256=meta["lower_sha256"],h1_updates=args.h1_updates,h3_updates=args.h3_updates,

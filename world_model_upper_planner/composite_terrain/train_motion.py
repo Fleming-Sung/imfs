@@ -7,6 +7,7 @@ import time
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 from cgowm import CandidateGroundedWorldModel,ModelConfig
 from .anchored import MotionModel,compose_pose,crop_map
 from cgowm.data import load_arrays
@@ -18,6 +19,7 @@ def main():
     p.add_argument('--updates',type=int,default=3000);p.add_argument('--seed',type=int,default=9701)
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True);torch.set_num_threads(4)
     torch.manual_seed(a.seed);rng=np.random.default_rng(a.seed);start=time.perf_counter()
+    writer=SummaryWriter(a.output/"tb")
     source=load_arrays(a.dataset) if a.dataset.is_dir() else np.load(a.dataset)
     d={k:source[k] for k in ['depth','proprio','next_proprio','motion','action','done','duration',
                             'env_id','episode_id','option_index']}
@@ -51,6 +53,7 @@ def main():
         loss=((ml+sl)*bootstrap).sum()/bootstrap.sum().clamp_min(1)
         optimizer.zero_grad(set_to_none=True);loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(),10);optimizer.step()
+        if update%100==0:writer.add_scalar('train/loss',float(loss),update)
         if update%500==0 or update==a.updates:
             with torch.no_grad():
                 ids=torch.as_tensor(val[:4096],device='cuda:0')
@@ -60,6 +63,9 @@ def main():
                 score=float((mae/model.motion_scale).mean()+state_mae)
             record=dict(update=update,motion_mae=mae.tolist(),state_mae=float(state_mae),
                         score=score,wall_seconds=time.perf_counter()-train_start)
+            writer.add_scalars('val',{'motion_mae_dx':float(mae[0]),'motion_mae_dy':float(mae[1]),
+                'motion_mae_dyaw':float(mae[2]),'motion_mae_dz':float(mae[3]),
+                'state_mae':float(state_mae),'score':score},update)
             with (a.output/'progress.jsonl').open('a') as f:f.write(json.dumps(record)+'\n')
             print(json.dumps(record),flush=True)
             state=dict(motion_model=model.state_dict(),world_checkpoint=str(a.world_checkpoint),
@@ -91,6 +97,7 @@ def main():
         best_score=best,open_loop=open_loop,world_checkpoint=str(a.world_checkpoint),
         world_sha256=hashlib.sha256(a.world_checkpoint.read_bytes()).hexdigest(),
         lower_sha256=meta['lower_sha256'],wall_seconds=time.perf_counter()-start)
+    writer.close()
     (a.output/'summary.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary,indent=2))
 
 if __name__=='__main__':main()

@@ -64,26 +64,34 @@ def generate_route(spec):
         active_t = np.clip((x-start-.35)/(spec.segment_length-.7), 0, 1)
         width = float(rng.uniform(.90,1.20))
         if kind == "ramp":
-            dz = float(rng.choice([-1,1])*(.04+.12*d))
+            dz = float(rng.choice([-1,1])*(.06+.14*d))
             profile += dz*active_t
         elif kind == "stairs":
-            step_height = (.015+.04*d)*float(rng.choice([-1,1]))
+            # Genuine staircase: 4-6 cm risers. The frozen XYZ lower is audited
+            # to +/-4 cm and commanded up to +/-8 cm per option, so each riser
+            # is a real height change, not a barely-visible 1-2 cm step.
+            step_height = (.04+.02*d)*float(rng.choice([-1,1]))
             profile += step_height*np.floor(active_t*5 + 1e-5)
             dz = 5*step_height
         elif kind in ("bridge","curved_bridge"):
-            width = float(rng.uniform(.58-.14*d,.70-.12*d))
+            width = float(rng.uniform(.54-.14*d,.64-.12*d))
         elif kind == "rough":
             # Low-pass continuous bumps, zero at region boundaries.
-            profile += (.008+.025*d)*np.sin(6*np.pi*active_t)*np.sin(np.pi*active_t)**2
+            profile += (.015+.03*d)*np.sin(6*np.pi*active_t)*np.sin(np.pi*active_t)**2
         if kind == "stones":
             # Two offset rows of variable-height supports; no hidden flat floor.
+            # Pillar tops vary +/-4..6 cm so adjacent stones are genuinely
+            # non-coplanar (up to ~12 cm pairwise difference), pads are
+            # foot-sized and forward gaps are real; the planner must pick a
+            # feasible 3D foothold chain instead of stepping on a nearly flat
+            # field.
             gate = along & ((xx<start+.45)|(xx>end-.45)) & (abs(lateral)<.65)
             surface(gate, level)
-            pitch = .28+.04*d; pad_x = pitch-(.02+.035*d); pad_y=.27-.045*d
+            pitch = .30+.06*d; pad_x = pitch-(.06+.04*d); pad_y=.22-.03*d
             for j,cx in enumerate(np.arange(start+.40,end-.25,pitch)):
                 cy=float(np.interp(cx,x,centerline))
                 for side in [-1,1]:
-                    z = level+float(rng.uniform(-.012-.025*d,.012+.025*d))
+                    z = level+float(rng.uniform(-.04-.02*d,.04+.02*d))
                     mask=along & (abs(xx-cx)<=pad_x/2) & (abs(yy-cy-side*.145)<=pad_y/2)
                     surface(mask,z)
         else:
