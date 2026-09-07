@@ -8,13 +8,14 @@ from .upper_state import build_proprio
 
 class UpperRollout:
     def __init__(self, env, lower_policy, target_interface, task, depth_cfg,
-                 capture_depth=True):
+                 capture_depth=True, terrain_observer=None):
         self.env = env
         self.lower_policy = lower_policy
         self.target_interface = target_interface
         self.task = task
         self.depth_cfg = depth_cfg
         self.capture_depth_enabled = bool(capture_depth)
+        self.terrain_observer = terrain_observer
         self.obs, self.goal, _ = env.get_observations()
         self.initialized = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self.previous_swing = env.sampler.swing_foot.clone()
@@ -34,7 +35,9 @@ class UpperRollout:
 
     @torch.no_grad()
     def _sense(self):
-        if self.capture_depth_enabled:
+        if self.terrain_observer is not None:
+            depth = self.terrain_observer(self.env)
+        elif self.capture_depth_enabled:
             raw = self.env.capture_depth()
             depth = preprocess_isaac_depth(
                 raw, self.depth_cfg["near_m"], self.depth_cfg["far_m"]).unsqueeze(1)

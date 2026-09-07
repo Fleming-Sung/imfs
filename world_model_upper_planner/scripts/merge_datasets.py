@@ -49,10 +49,12 @@ def main():
         writers = {}
         with np.load(args.inputs[0], allow_pickle=False) as first:
             for name in names:
-                if name == "difficulty" and name not in first.files:
-                    sample = np.full(1, "legacy", dtype="U24")
-                elif name == "terrain_kind" and name not in first.files:
-                    sample = np.full(1, "random_composite", dtype="U24")
+                if name in ("difficulty", "terrain_kind"):
+                    # Never inherit a short fixed-width Unicode dtype from the
+                    # first shard (for example edge_cases U10 truncating
+                    # stepping_stones). Scenario labels define validation
+                    # groups, so silent truncation is a real data leak risk.
+                    sample = np.full(1, "", dtype="U24")
                 elif name == "candidate_alignment" and name not in first.files:
                     sample = np.zeros_like(first["candidate_progress"][:1], dtype=np.float32)
                 else:

@@ -3,6 +3,7 @@
 
 import argparse
 from collections import deque
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -20,6 +21,7 @@ from adapters.frozen_lower_env.contracts import FootholdActionBounds
 from adapters.frozen_lower_env.factory import create_upper_system
 from adapters.frozen_lower_env.rollout import UpperRollout
 from adapters.geometry_labels import CandidateGeometryLabeler
+from adapters.privileged_terrain import PrivilegedTerrainObserver
 from cgowm.candidates import make_candidates
 
 
@@ -27,6 +29,8 @@ def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_envs", type=int, default=16)
     parser.add_argument("--lower_ticks", type=int, default=300)
+    parser.add_argument("--lower_checkpoint", type=Path,
+                        help="explicit frozen-lower variant; recorded in replay metadata")
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument(
         "--terrain_curriculum",
@@ -62,6 +66,11 @@ def arguments():
     parser.add_argument("--unsafe_random_fraction", type=float, default=0.10,
                         help="fraction of all-grid actions for failure coverage")
     parser.add_argument("--reset_curriculum_prob", type=float, default=0.0)
+    parser.add_argument("--turn_option_adapter", action="store_true",
+                        help="collect with isolated curvature option semantics")
+    parser.add_argument("--turn_curvature_gain", type=float, default=3.0)
+    parser.add_argument("--privileged_terrain", action="store_true",
+                        help="use true ego height map and do not create cameras")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sim_device", type=str, default="cuda:0")
     parser.add_argument("--headless", action="store_true", default=True)
@@ -80,13 +89,22 @@ def main():
     env, lower, interface, task, tiled, cfg = create_upper_system(
         ROOT, args, args.num_envs, args.seed,
         corridor_width_m=args.corridor_width_m, randomization=True,
-        cameras=True, flat_plane=False, obstacles=False,
+        cameras=not args.privileged_terrain, flat_plane=False, obstacles=False,
         course_length_m=args.course_length_m)
-    rollout = UpperRollout(env, lower, interface, task, cfg["depth"])
+    terrain_observer = (PrivilegedTerrainObserver(
+        tiled, env.device, cfg["depth"]["height"], cfg["depth"]["width"])
+        if args.privileged_terrain else None)
+    rollout = UpperRollout(
+        env, lower, interface, task, cfg["depth"],
+        capture_depth=not args.privileged_terrain,
+        terrain_observer=terrain_observer)
     bounds = FootholdActionBounds.from_config(cfg["action_cartesian_course"])
     candidates = make_candidates(bounds, env.device)
+    # Geometry supervision must use the exact action semantics that are
+    # physically executed. For the optional curvature adapter this is the
+    # wrapped bounds object, while the normalized candidate grid is unchanged.
     labeler = CandidateGeometryLabeler(
-        tiled, bounds, candidates, env.device)
+        tiled, interface.bounds, candidates, env.device)
     generator = torch.Generator(device=env.device)
     generator.manual_seed(args.seed + 1009)
     rows = []
@@ -168,6 +186,10 @@ def main():
                 "progress": float(raw_progress[index]),
                 "support": float(diagnostics["support_fraction"][index]),
                 "touchdown_error": float(diagnostics["touchdown_error_m"][index]),
+                "touchdown_residual": diagnostics[
+                    "touchdown_residual_target_xy_m"][index].cpu().numpy(),
+                "touchdown_residual_valid": bool(
+                    diagnostics["touchdown_residual_valid"][index]),
                 "fall": bool(diagnostics["fall"][index]),
                 "collision": bool(diagnostics["collision"][index]),
                 "success": bool(diagnostics["success"][index]),
@@ -198,6 +220,8 @@ def main():
         done=array("done", np.bool_), progress=array("progress", np.float32),
         support=array("support", np.float32),
         touchdown_error=array("touchdown_error", np.float32),
+        touchdown_residual=array("touchdown_residual", np.float32),
+        touchdown_residual_valid=array("touchdown_residual_valid", np.bool_),
         fall=array("fall", np.bool_), collision=array("collision", np.bool_),
         success=array("success", np.bool_), duration=array("duration", np.int16),
         env_id=array("env_id", np.int32),
@@ -226,6 +250,10 @@ def main():
             *np.unique([row["terrain_kind"] for row in rows], return_counts=True))},
         "difficulty": args.difficulty_tag,
         "behavior": args.behavior,
+        "lower_checkpoint": str(args.lower_checkpoint) if args.lower_checkpoint else None,
+        "lower_checkpoint_sha256": (
+            hashlib.sha256(args.lower_checkpoint.read_bytes()).hexdigest()
+            if args.lower_checkpoint else None),
         "wall_seconds": wall_seconds,
         "lower_env_steps_per_second": (
             args.lower_ticks * args.num_envs / max(wall_seconds, 1e-9)),

@@ -1,6 +1,14 @@
 # Development status
 
-Date: 2026-09-01
+Date: 2026-09-07
+
+## 当前主线：三维下层与连续复合地图
+
+用户已将后续方向改为随机XYZ目标驱动地形的下层训练，以及单张地图中的连续多地形上层任务。执行计划及阶段状态见 [composite_3d_plan.md](composite_3d_plan.md)，实验、视频见 [composite_3d_experiments.md](composite_3d_experiments.md)。V8单场景扩量暂停，历史结果保留。
+
+独立下层 `lower_controller_3d/` 首轮200迭代完成，约10.9分钟；±4cm高度目标两种子审计中93.75%–95.3%环境连续20s无跌倒，XY/Z中位约3.2/0.1cm，之后未追加下层训练。连续七类18.8m路线、XYZ+yaw动作、75维控制状态已经运行完整训练/验证周期。V4在64张新图、60s严格稳定到达判据下，同一检查点H1完成23次，H3仅4次；两条60s失败视频/轨迹见[自动结果](composite3d_v4_nav_results.md)。这说明方法能走通部分复杂路线，但纯潜状态长展开尚未带来价值。
+
+V8复合地图周期已全部完成：混合池207113条上层转移、768布局、5.12M次下层交互；两批难图完成29/64和26/64，首次完成16/64和20/64。相对V7序列H1的26/33张没有稳定提升。三步风险尾项、终点机身进展改分、全180候选评分均未跨种子改善，不晋级为默认方法。H3继续负收益，暂不加深时域。V9已启动1024新布局、四档难度、12%当前支撑候选探索的实际采集→训练→双种子验证→视频队列，计划新增6.144M交互。[自动进度](composite3d_v9_live.md)，完整统计与成功/失败视频见[2026-09-07进度](progress_2026-09-07.md)。原始下层与师生/PPO代码仍无diff。
 
 ## Completed and verified
 
@@ -16,7 +24,7 @@ Date: 2026-09-01
 - Implemented sequence learning with EMA next-observation consistency, measured
   option outcomes, TD value, policy prior, and optional all-candidate privileged
   geometry labels.
-- Seven unit tests pass, including 294 unique candidates, strict reachable
+- Twelve unit tests pass, including 294 unique candidates, strict reachable
   planning, sparse-mask safety, obstacle geometry, and all-invalid-row safety.
 
 ## First real-data Gate
@@ -176,3 +184,76 @@ terrain families and nominal/hard parameter ranges. Large replay merging is now
 disk-memmap based; H1/H3 batch sizes were raised to 1024/512 after GPU probes.
 Full design, exclusions, commands and live artifact paths are in
 `docs/scale_training_v4.md`.
+# 2026-09-02 V5 scale update
+
+V5 completed 18.432M lower-env interactions, 749,757 option transitions and
+24,576 layouts using simulator-true local terrain input and an isolated
+curvature-option adapter. H1/H3 training and 36 three-seed evaluations are
+complete. The largest V4-to-V5 gains are turns nominal (16.2% to 36.0%), turns
+hard (4.0% to 11.4%), research hard (17.2% to 25.4%), and irregular hard (53.8%
+to 73.0%). Household nominal/hard regress to 49.9%/32.5%, so V5 is not yet the
+final model. Six hard-scenario V5 videos are saved. See `scale_training_v5.md`.
+
+Video inspection identified why household regressed: static-box obstacles were
+not included in the privileged heightfield observation. V6 now overlays exact
+box footprints/heights; a smoke audit changed household obstacle visibility from
+0% to 100% of frames. Ten unit tests pass. V6 scale recollection/training is the
+active next experiment.
+
+## 2026-09-02 V6 completed
+
+V6 completed 18.432M lower-environment interactions, 749,541 option
+transitions, 24,576 layouts, H1/H3 training, and 36 three-seed closed-loop
+evaluations. Correcting obstacle visibility raised household nominal/hard from
+49.9%/32.5% to 77.6%/61.3%; turns hard rose from 11.4% to 25.4%. Bridge remains
+94.7--100% and irregular 77.7--96.5%. Edge hard (25.5%) and stones hard (20.4%)
+remain the clear failures. Representative V6 videos and the complete comparison
+are in [scale_training_v6.md](scale_training_v6.md). The next gate is risk-critic
+and H1/H3 closed-loop ablation, followed by trajectory-driven feasibility work;
+more undirected scale training is not currently justified.
+
+The V6 finite-horizon risk critic subsequently completed its 36-run evaluation.
+It improves research hard from 25.3% to 41.4%, edge hard from 25.5% to 37.2%,
+and irregular hard from 77.7% to 83.4%, while stones hard remains 21.8%.
+Risk-H3 is therefore the current selected planner; the same-checkpoint H1
+closed-loop ablation is now running to test latent-horizon exploitation.
+
+The H1 ablation is complete. It improves turns nominal to 48.5% and bridge hard
+to 97.3%, but collapses edge/stones to 13.7%/14.6%; risk-H3 remains the unified
+choice. Work now moves to a true-map analytic first-action feasibility shield,
+with no simulator-layout oracle and no lower-controller change.
+
+Trajectory inspection and targeted V7 experiments are complete. A 126,589-row
+edge/stones landing dataset and 2-D landing ensemble were added; held-out landing
+RMSE is 3.69 cm. Static shields, scalar touchdown penalties, chance scoring,
+and learned inverse compensation all improved some safety statistic but reduced
+closed-loop completion, so none was promoted. An explicitly diagnostic exact-
+geometry planner reached only 29.6% on the tested stones seed, while exact
+greedy progress collapsed to 0.8%. This establishes a frozen-lower/action-
+realization boundary. `adapters/lower_tracking_adaptation/` is now the isolated
+location for any lower variant; existing lower and teacher/PPO sources remain
+unchanged.
+
+## 2026-09-02 V8 lower-consistent expansion
+
+An isolated 40-iteration lower tracking variant reduced straight/right-turn
+touchdown error and raised the same-seed stepping-stones capability probe from
+18.6% to 30.7% averaged over three seeds. It is not yet a final result because
+the probe used a V6 upper model trained under the original lower dynamics. The
+full candidate audit also found a small left-turn fall-rate regression, so the
+variant is not replacing the immutable baseline.
+
+The scale pipeline now binds replay and evaluation to an explicit lower
+checkpoint SHA-256 and rejects mixed lower semantics. A complete 12-scenario
+smoke pipeline passed under the new hash. Results, limitations, and
+representative success/failure videos are in
+[scale_training_v8_lower.md](scale_training_v8_lower.md). The active formal
+experiment is a fresh 12-shard V8 recollection followed by H1/H3 and risk-model
+retraining under that exact lower controller.
+
+Audit on 2026-09-06 found that the formal V8 job stopped after 2/12 shards and
+is not currently running. The two complete files contain 124,984 transitions,
+3.072M lower interactions and all 294 candidates under the correct lower hash;
+no V8 formal model or evaluation exists yet. The precise current state,
+representative videos, and resume gate are recorded in
+[progress_2026-09-06.md](progress_2026-09-06.md). V6 risk-H3 remains selected.

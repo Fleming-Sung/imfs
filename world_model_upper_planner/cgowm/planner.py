@@ -19,30 +19,37 @@ class PlannerConfig:
     fall_weight: float = 5.0
     collision_weight: float = 2.0
     support_weight: float = 1.0
+    touchdown_error_weight: float = 0.0
     reward_weight: float = 0.0
     progress_weight: float = 10.0
     terminal_value_weight: float = 0.1
     feasibility_threshold: float = 0.0
+    fall_logit_scale: float = 1.0
+    fall_logit_bias: float = 0.0
+    collision_logit_scale: float = 1.0
+    collision_logit_bias: float = 0.0
 
 
 class BeamPlanner:
-    def __init__(self, model, config=None):
+    def __init__(self, model, config=None, risk_model=None):
         self.model = model
         self.config = config or PlannerConfig()
+        self.risk_model = risk_model
 
     @torch.no_grad()
-    def plan(self, latent, static_candidate_mask=None):
+    def plan(self, latent, static_candidate_mask=None, first_action_score_bias=None):
         """Return candidate indices and diagnostics for a batch of latents."""
         batch = latent.shape[0]
         chosen, diagnostics = [], []
         for row in range(batch):
             mask = None if static_candidate_mask is None else static_candidate_mask[row]
-            index, info = self._plan_one(latent[row:row + 1], mask)
+            bias = None if first_action_score_bias is None else first_action_score_bias[row]
+            index, info = self._plan_one(latent[row:row + 1], mask, bias)
             chosen.append(index)
             diagnostics.append(info)
         return torch.stack(chosen), diagnostics
 
-    def _plan_one(self, initial, static_mask):
+    def _plan_one(self, initial, static_mask, first_bias=None):
         # Each beam stores latent, discounted return, first action and predicted
         # probability that the option sequence is still continuing.
         beams = [(initial, initial.new_zeros(()), None, initial.new_ones(()))]
@@ -63,9 +70,23 @@ class BeamPlanner:
                 indices = available[local_top]
                 q = prediction["q"][:, 0, indices]
                 uncertainty = q.std(dim=0, unbiased=False)
-                fall = torch.sigmoid(prediction["fall_logit"][0, indices])
-                collision = torch.sigmoid(prediction["collision_logit"][0, indices])
+                if self.risk_model is None:
+                    fall = torch.sigmoid(
+                        self.config.fall_logit_scale
+                        * prediction["fall_logit"][0, indices]
+                        + self.config.fall_logit_bias)
+                    collision = torch.sigmoid(
+                        self.config.collision_logit_scale
+                        * prediction["collision_logit"][0, indices]
+                        + self.config.collision_logit_bias)
+                else:
+                    risk = self.risk_model.predict_candidates(
+                        latent, self.model.candidates[indices])
+                    fall = torch.sigmoid(risk["fall_logit"]).mean(0)[0]
+                    collision = torch.sigmoid(
+                        risk["collision_logit"]).mean(0)[0]
                 support = prediction["support"][0, indices]
+                touchdown_error = prediction["touchdown_error"][0, indices]
                 reward = prediction["reward"][0, indices]
                 continuation = torch.sigmoid(
                     prediction["continuation_logit"][0, indices])
@@ -74,6 +95,9 @@ class BeamPlanner:
                          - self.config.fall_weight * fall
                          - self.config.collision_weight * collision
                          - self.config.support_weight * (1.0 - support))
+                score = score - self.config.touchdown_error_weight * touchdown_error
+                if step == 0 and first_bias is not None:
+                    score = score + first_bias[indices]
                 feasible = support >= self.config.feasibility_threshold
                 for local in feasible.nonzero(as_tuple=False).flatten().tolist():
                     candidate_index = indices[local]
@@ -110,12 +134,14 @@ class BeamPlanner:
 class VectorizedBeamPlanner:
     """GPU-batched beam search for asynchronous upper-decision groups."""
 
-    def __init__(self, model, config=None):
+    def __init__(self, model, config=None, risk_model=None):
         self.model = model
         self.config = config or PlannerConfig()
+        self.risk_model = risk_model
 
     @torch.no_grad()
-    def plan(self, initial, static_candidate_mask=None):
+    def plan(self, initial, static_candidate_mask=None,
+             first_action_score_bias=None):
         batch, latent_dim = initial.shape
         candidates = self.model.candidates
         beam_latent = initial[:, None]
@@ -129,7 +155,7 @@ class VectorizedBeamPlanner:
             flat = beam_latent.reshape(batch * beams, latent_dim)
             prediction = self.model.predict_candidates(flat)
             logits = prediction["policy_logits"].view(batch, beams, -1)
-            if static_candidate_mask is not None:
+            if static_candidate_mask is not None and step == 0:
                 logits = logits.masked_fill(
                     ~static_candidate_mask[:, None].bool(), -torch.inf)
             proposals = min(self.config.proposals_per_beam, logits.shape[-1])
@@ -144,9 +170,23 @@ class VectorizedBeamPlanner:
             q_selected = torch.gather(
                 q, -1, index[None].expand(q.shape[0], -1, -1, -1))
             uncertainty = q_selected.std(0, unbiased=False)
-            fall = torch.sigmoid(gather(prediction["fall_logit"]))
-            collision = torch.sigmoid(gather(prediction["collision_logit"]))
+            if self.risk_model is None:
+                fall = torch.sigmoid(
+                    self.config.fall_logit_scale * gather(prediction["fall_logit"])
+                    + self.config.fall_logit_bias)
+                collision = torch.sigmoid(
+                    self.config.collision_logit_scale
+                    * gather(prediction["collision_logit"])
+                    + self.config.collision_logit_bias)
+            else:
+                risk = self.risk_model.predict_candidates(flat, candidates)
+                risk_fall = torch.sigmoid(risk["fall_logit"]).mean(0)
+                risk_collision = torch.sigmoid(
+                    risk["collision_logit"]).mean(0)
+                fall = gather(risk_fall)
+                collision = gather(risk_collision)
             support = gather(prediction["support"])
+            touchdown_error = gather(prediction["touchdown_error"])
             progress = gather(prediction["progress"])
             reward = gather(prediction["reward"])
             continuation = torch.sigmoid(gather(
@@ -158,6 +198,11 @@ class VectorizedBeamPlanner:
                 - self.config.fall_weight * fall
                 - self.config.collision_weight * collision
                 - self.config.support_weight * (1.0 - support))
+            score = score - self.config.touchdown_error_weight * touchdown_error
+            if step == 0 and first_action_score_bias is not None:
+                score = score + torch.gather(
+                    first_action_score_bias[:, None, :].expand(-1, beams, -1),
+                    -1, index)
             # topk has a fixed width for GPU efficiency.  When a static mask
             # contains fewer candidates than that width, topk pads with masked
             # entries; keep those entries impossible during beam selection.
@@ -200,7 +245,20 @@ class VectorizedBeamPlanner:
                            * beam_alive * terminal)
         best = beam_return.argmax(-1)
         row = torch.arange(batch, device=initial.device)
-        return beam_first[row, best], {
+        selected = beam_first[row, best]
+        fallback = ~torch.isfinite(beam_return[row, best])
+        if fallback.any():
+            prediction = self.model.predict_candidates(initial[fallback])
+            # When every beam violates a hard threshold, select the action with
+            # maximal predicted physical support. This is deterministic and
+            # safer than returning an arbitrary -inf top-k entry.
+            fallback_score = prediction["support"]
+            if static_candidate_mask is not None:
+                fallback_score = fallback_score.masked_fill(
+                    ~static_candidate_mask[fallback].bool(), -torch.inf)
+            selected[fallback] = fallback_score.argmax(-1)
+        return selected, {
             "expanded": expanded,
             "best_score": beam_return[row, best],
+            "fallback": fallback,
         }

@@ -169,7 +169,22 @@ class UpperTaskDiagnostics:
         # the old single-cell check that flagged feet landing near gap edges.
         off_support = (support_fraction < 0.5).float()
         target_position = self.env.sampler.target_pos[ids, landed_foot, :2]
-        touchdown_error = torch.norm(landed_position - target_position, dim=-1)
+        residual_world = landed_position - target_position
+        touchdown_error = torch.norm(residual_world, dim=-1)
+        target_yaw = self.env.sampler.target_yaw[ids, landed_foot]
+        target_cosine, target_sine = torch.cos(target_yaw), torch.sin(target_yaw)
+        touchdown_residual = torch.stack((
+            target_cosine * residual_world[:, 0]
+            + target_sine * residual_world[:, 1],
+            -target_sine * residual_world[:, 0]
+            + target_cosine * residual_world[:, 1]), dim=-1)
+        # Isaac has already reset a physical fall before this callback. The
+        # terminal fall label remains valid, but its post-reset foot position
+        # is not a landing residual and must never supervise the landing model.
+        touchdown_residual_valid = ~fall
+        touchdown_residual = torch.where(
+            touchdown_residual_valid[:, None], touchdown_residual,
+            torch.zeros_like(touchdown_residual))
         collision_force = self.max_collision_force[ids]
         healthy_lower = float(self.env.cfg.env.healthy_height_range[0])
         max_tilt_rad = math.radians(float(self.env.cfg.env.max_tilt_deg))
@@ -220,5 +235,7 @@ class UpperTaskDiagnostics:
             "stability_margin": stability_margin,
             "support_fraction": support_fraction,
             "touchdown_error_m": touchdown_error,
+            "touchdown_residual_target_xy_m": touchdown_residual,
+            "touchdown_residual_valid": touchdown_residual_valid,
             "macro_state": self.macro_state(ids),
         }

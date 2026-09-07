@@ -58,7 +58,9 @@ def create_upper_system(root, args, num_envs, seed, corridor_width_m=0.90,
                         reward_override=None, obstacle_y_m=None):
     root = Path(root)
     project_cfg = json.loads((root / "config" / "default.json").read_text())
-    checkpoint_path = root / "checkpoints" / "lower_model_7000.pt"
+    checkpoint_path = Path(getattr(
+        args, "lower_checkpoint", None) or
+        (root / "checkpoints" / "lower_model_7000.pt"))
     checkpoint = torch.load(str(checkpoint_path), map_location="cpu")
     cfg = AttrDict.from_nested(checkpoint["config"])
     cfg.asset.file = str(root / "assets" / "SF_TRON1A" / "urdf" / "robot.urdf")
@@ -249,7 +251,16 @@ def create_upper_system(root, args, num_envs, seed, corridor_width_m=0.90,
             "action_profile must be legacy, polar, polar_course, "
             "or cartesian_course")
     project_cfg["action_profile"] = action_profile
-    interface = UpperFootholdTargetInterface(bounds)
+    if bool(getattr(args, "turn_option_adapter", False)):
+        from adapters.turn_option import CurvatureFootholdTargetInterface
+        interface = CurvatureFootholdTargetInterface(
+            bounds, curvature_gain=float(getattr(args, "turn_curvature_gain", 3.0)))
+        project_cfg["turn_option_adapter"] = True
+        project_cfg["turn_curvature_gain"] = float(
+            getattr(args, "turn_curvature_gain", 3.0))
+    else:
+        interface = UpperFootholdTargetInterface(bounds)
+        project_cfg["turn_option_adapter"] = False
     if reward_override:
         project_cfg["reward"].update(reward_override)
     diagnostics = UpperTaskDiagnostics(env, tiled, project_cfg["reward"])

@@ -2,6 +2,7 @@
 """Closed-loop evaluation and video recording for CG-OWM planners."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -18,19 +19,53 @@ import torch
 
 from adapters.frozen_lower_env.factory import create_upper_system
 from adapters.frozen_lower_env.rollout import UpperRollout
+from adapters.privileged_terrain import PrivilegedTerrainObserver
+from adapters.geometry_labels import CandidateGeometryLabeler
+from adapters.landing_compensation import compensate_candidate_indices
 from cgowm import (CandidateGroundedWorldModel, ModelConfig, PlannerConfig,
-                   VectorizedBeamPlanner)
+                   LandingConfig, LandingDistributionCritic,
+                   OptionRiskCritic, RiskConfig, VectorizedBeamPlanner)
 
 
 def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--lower_checkpoint", type=Path,
+                        help="isolated lower capability audit/variant")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mode", choices=("model_score", "prior", "beam"),
                         default="model_score")
     parser.add_argument("--planning_horizon", type=int, default=3)
     parser.add_argument("--beam_width", type=int, default=16)
     parser.add_argument("--proposals_per_beam", type=int, default=8)
+    parser.add_argument("--fall_weight", type=float, default=5.0)
+    parser.add_argument("--collision_weight", type=float, default=2.0)
+    parser.add_argument("--support_weight", type=float, default=3.0)
+    parser.add_argument("--touchdown_error_weight", type=float, default=0.0)
+    parser.add_argument("--uncertainty_weight", type=float, default=0.5)
+    parser.add_argument("--progress_weight", type=float, default=10.0)
+    parser.add_argument("--terminal_value_weight", type=float, default=0.1)
+    parser.add_argument("--feasibility_threshold", type=float, default=0.0)
+    parser.add_argument("--calibration", type=Path,
+                        help="held-out Platt calibration JSON")
+    parser.add_argument("--risk_checkpoint", type=Path,
+                        help="optional finite-horizon option risk critic")
+    parser.add_argument("--landing_checkpoint", type=Path,
+                        help="optional frozen-lower landing distribution")
+    parser.add_argument("--landing_support_weight", type=float, default=0.0)
+    parser.add_argument("--landing_compensation", action="store_true",
+                        help="inverse landing adapter; requires landing checkpoint")
+    parser.add_argument("--turn_option_adapter", action="store_true",
+                        help="use isolated curvature option adapter")
+    parser.add_argument("--turn_curvature_gain", type=float, default=3.0)
+    parser.add_argument("--privileged_terrain", action="store_true",
+                        help="evaluate from simulator true ego height map")
+    parser.add_argument("--terrain_shield", action="store_true",
+                        help="mask first actions using current observed terrain")
+    parser.add_argument("--oracle_geometry_diagnostic", action="store_true",
+                        help="DIAGNOSTIC ONLY: exact current layout mask/progress")
+    parser.add_argument("--oracle_greedy_diagnostic", action="store_true",
+                        help="DIAGNOSTIC ONLY: exact best current progress")
     parser.add_argument("--num_envs", type=int, default=64)
     parser.add_argument("--lower_ticks", type=int, default=1500)
     parser.add_argument("--seed", type=int, default=924)
@@ -84,16 +119,55 @@ def main():
         args.sim_device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
+    risk_model = None
+    if args.risk_checkpoint:
+        risk_checkpoint = torch.load(
+            args.risk_checkpoint, map_location=args.sim_device)
+        risk_model = OptionRiskCritic(
+            RiskConfig(**risk_checkpoint["risk_config"])).to(args.sim_device)
+        risk_model.load_state_dict(risk_checkpoint["risk"])
+        risk_model.eval()
+    calibration = json.loads(args.calibration.read_text()) if args.calibration else None
+    landing_model = None
+    if args.landing_checkpoint:
+        landing_checkpoint = torch.load(
+            args.landing_checkpoint, map_location=args.sim_device)
+        landing_model = LandingDistributionCritic(
+            LandingConfig(**landing_checkpoint["landing_config"])).to(args.sim_device)
+        landing_model.load_state_dict(landing_checkpoint["landing"])
+        landing_model.eval()
+    fall_cal = calibration["fall"]["platt"] if calibration else {
+        "scale": 1.0, "bias": 0.0}
+    collision_cal = calibration["collision"]["platt"] if calibration else {
+        "scale": 1.0, "bias": 0.0}
     planner = VectorizedBeamPlanner(model, PlannerConfig(
         horizon=args.planning_horizon, beam_width=args.beam_width,
         proposals_per_beam=args.proposals_per_beam,
-        support_weight=3.0, terminal_value_weight=0.1))
-    env, lower, interface, task, _, cfg = create_upper_system(
+        fall_weight=args.fall_weight, collision_weight=args.collision_weight,
+        support_weight=args.support_weight,
+        touchdown_error_weight=args.touchdown_error_weight,
+        uncertainty_weight=args.uncertainty_weight,
+        progress_weight=args.progress_weight,
+        terminal_value_weight=args.terminal_value_weight,
+        feasibility_threshold=args.feasibility_threshold,
+        fall_logit_scale=fall_cal["scale"], fall_logit_bias=fall_cal["bias"],
+        collision_logit_scale=collision_cal["scale"],
+        collision_logit_bias=collision_cal["bias"]), risk_model=risk_model)
+    env, lower, interface, task, tiled, cfg = create_upper_system(
         ROOT, args, args.num_envs, args.seed,
         corridor_width_m=args.corridor_width_m, randomization=False,
-        cameras=True, flat_plane=False, obstacles=False,
+        cameras=not args.privileged_terrain, flat_plane=False, obstacles=False,
         course_length_m=args.course_length_m)
-    rollout = UpperRollout(env, lower, interface, task, cfg["depth"])
+    terrain_observer = (PrivilegedTerrainObserver(
+        tiled, env.device, cfg["depth"]["height"], cfg["depth"]["width"])
+        if args.privileged_terrain else None)
+    oracle_geometry = (CandidateGeometryLabeler(
+        tiled, interface.bounds, model.candidates, env.device)
+        if args.oracle_geometry_diagnostic else None)
+    rollout = UpperRollout(
+        env, lower, interface, task, cfg["depth"],
+        capture_depth=not args.privileged_terrain,
+        terrain_observer=terrain_observer)
     args.output.mkdir(parents=True, exist_ok=True)
     frame_dir = args.output / "frames"
     if args.record_video:
@@ -101,7 +175,8 @@ def main():
     frame_stride = max(1, int(round(1.0 / (env.dt * args.video_fps))))
     frame_index = 0
     selected_prediction = {name: [] for name in (
-        "progress", "support", "fall", "collision", "uncertainty", "index")}
+        "progress", "support", "touchdown_error", "fall", "collision",
+        "landing_support", "uncertainty", "index")}
 
     @torch.no_grad()
     def choose(depth, proprio, ids):
@@ -111,10 +186,44 @@ def main():
             depth = torch.roll(depth, 1, 0)
         latent = model.encode(depth, proprio)
         prediction = model.predict_candidates(latent)
+        risk_prediction = (risk_model.predict_candidates(
+            latent, model.candidates) if risk_model is not None else None)
+        landing_support = None
         if args.mode == "prior":
             index = prediction["policy_logits"].argmax(-1)
         elif args.mode == "beam":
-            index, _ = planner.plan(latent)
+            candidate_mask = None
+            first_bias = None
+            if args.terrain_shield:
+                if terrain_observer is None:
+                    raise ValueError("terrain_shield requires privileged_terrain")
+                candidate_mask, _ = terrain_observer.candidate_mask(
+                    env, ids, model.candidates, interface.bounds)
+            if oracle_geometry is not None:
+                exact = oracle_geometry.label(env, ids)
+                candidate_mask = exact["candidate_valid"]
+                empty = ~candidate_mask.any(-1)
+                if empty.any():
+                    fallback = exact["candidate_support"].argmax(-1)
+                    candidate_mask[empty, fallback[empty]] = True
+                first_bias = 10.0 * exact["candidate_progress"]
+            if landing_model is not None:
+                if terrain_observer is None:
+                    raise ValueError("landing model requires privileged_terrain")
+                landing_prediction = landing_model.predict_candidates(
+                    latent, model.candidates)
+                landing_support = terrain_observer.landing_support_probability(
+                    env, ids, model.candidates, interface.bounds,
+                    landing_prediction)
+                landing_bias = args.landing_support_weight * torch.log(
+                    landing_support.clamp_min(0.05))
+                first_bias = landing_bias if first_bias is None else first_bias + landing_bias
+            index, _ = planner.plan(latent, candidate_mask, first_bias)
+            if args.oracle_greedy_diagnostic:
+                if oracle_geometry is None:
+                    raise ValueError("oracle_greedy requires oracle_geometry")
+                index = exact["candidate_progress"].masked_fill(
+                    ~candidate_mask, -torch.inf).argmax(-1)
         else:
             q = prediction["q"]
             uncertainty = q.std(0, unbiased=False)
@@ -126,15 +235,38 @@ def main():
                 - 0.5 * uncertainty
                 + 0.1 * q.min(0).values)
             index = score.argmax(-1)
+        if args.landing_compensation:
+            if landing_model is None:
+                raise ValueError("landing_compensation requires landing_checkpoint")
+            if 'landing_prediction' not in locals():
+                landing_prediction = landing_model.predict_candidates(
+                    latent, model.candidates)
+            index = compensate_candidate_indices(
+                env, ids, model.candidates, interface.bounds, index,
+                landing_prediction)
         row = torch.arange(len(index), device=index.device)
         selected_prediction["progress"].append(
             prediction["progress"][row, index].cpu().numpy())
         selected_prediction["support"].append(
             prediction["support"][row, index].cpu().numpy())
-        selected_prediction["fall"].append(torch.sigmoid(
-            prediction["fall_logit"][row, index]).cpu().numpy())
-        selected_prediction["collision"].append(torch.sigmoid(
-            prediction["collision_logit"][row, index]).cpu().numpy())
+        selected_prediction["touchdown_error"].append(
+            prediction["touchdown_error"][row, index].cpu().numpy())
+        selected_prediction["landing_support"].append(
+            (landing_support[row, index] if landing_support is not None
+             else torch.ones_like(index, dtype=torch.float32)).cpu().numpy())
+        if risk_prediction is None:
+            selected_prediction["fall"].append(torch.sigmoid(
+                fall_cal["scale"] * prediction["fall_logit"][row, index]
+                + fall_cal["bias"]).cpu().numpy())
+            selected_prediction["collision"].append(torch.sigmoid(
+                collision_cal["scale"] * prediction["collision_logit"][row, index]
+                + collision_cal["bias"]).cpu().numpy())
+        else:
+            selected_prediction["fall"].append(torch.sigmoid(
+                risk_prediction["fall_logit"][:, row, index]).mean(0).cpu().numpy())
+            selected_prediction["collision"].append(torch.sigmoid(
+                risk_prediction["collision_logit"][:, row, index]
+            ).mean(0).cpu().numpy())
         selected_prediction["uncertainty"].append(
             prediction["q"][:, row, index].std(0, unbiased=False).cpu().numpy())
         selected_prediction["index"].append(index.cpu().numpy())
@@ -193,6 +325,13 @@ def main():
               for name, values in selected_prediction.items()}
     metrics = {
         "checkpoint": str(args.checkpoint), "mode": args.mode,
+        "lower_checkpoint": str(args.lower_checkpoint) if args.lower_checkpoint else None,
+        "lower_checkpoint_sha256": (
+            hashlib.sha256(args.lower_checkpoint.read_bytes()).hexdigest()
+            if args.lower_checkpoint else None),
+        "calibration": str(args.calibration) if args.calibration else None,
+        "risk_checkpoint": (str(args.risk_checkpoint)
+                            if args.risk_checkpoint else None),
         "terrain_curriculum": args.terrain_curriculum,
         "terrain_kind": (args.typical_kind if args.terrain_curriculum == "typical"
                          else args.research_kind),

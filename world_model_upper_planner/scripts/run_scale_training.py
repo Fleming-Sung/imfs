@@ -7,6 +7,7 @@ manifest before moving on, so a machine restart never discards completed data.
 """
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -17,6 +18,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LOG_ROOT = ROOT / "experiments" / "scale_v4" / "logs"
 
 
 SCENARIOS = (
@@ -51,7 +53,7 @@ def run_stage(name, command, expected, manifest):
     if expected.exists():
         manifest[name] = {"status": "reused", "artifact": str(expected)}
         return
-    log = ROOT / "experiments" / "scale_v4" / "logs" / f"{name}.log"
+    log = LOG_ROOT / f"{name}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
     with log.open("a") as stream:
@@ -129,14 +131,34 @@ def audit_shard(path):
 
 
 def main():
+    global LOG_ROOT
     parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment", default="scale_v4",
+                        help="artifact/run namespace; never overwrites another experiment")
     parser.add_argument("--profile", choices=("smoke", "scale"), default="scale")
     parser.add_argument("--phase", choices=("all", "collect", "train", "eval"), default="all")
     parser.add_argument("--num_envs", type=int,
                         help="override collection parallelism after throughput probing")
     parser.add_argument("--lower_ticks", type=int,
                         help="override lower ticks per collection shard")
+    parser.add_argument("--lower_checkpoint", type=Path,
+                        help="bind collection and evaluation to one lower checkpoint")
     parser.add_argument("--no_videos", action="store_true")
+    parser.add_argument("--calibration", type=Path,
+                        help="optional held-out risk calibration for evaluation")
+    parser.add_argument("--risk_checkpoint", type=Path,
+                        help="optional finite-horizon option risk critic")
+    parser.add_argument("--planning_horizon", type=int, default=3,
+                        help="closed-loop planning horizon; training is unchanged")
+    parser.add_argument("--touchdown_error_weight", type=float, default=0.0)
+    parser.add_argument("--turn_option_adapter", action="store_true")
+    parser.add_argument("--turn_curvature_gain", type=float, default=1.5)
+    parser.add_argument("--exclude_base_dataset", action="store_true",
+                        help="do not mix replay collected under different action semantics")
+    parser.add_argument("--privileged_terrain", action="store_true",
+                        help="use fast true-height observation for method isolation")
+    parser.add_argument("--terrain_shield", action="store_true",
+                        help="mask first actions from the current true terrain map")
     parser.add_argument("--base_dataset", type=Path,
                         default=ROOT / "experiments/dataset_v2_replay_640env/transitions.npz")
     parser.add_argument("--init", type=Path,
@@ -146,9 +168,20 @@ def main():
     envs, ticks = ((16, 180) if args.profile == "smoke" else (512, 3000))
     envs = args.num_envs or envs
     ticks = args.lower_ticks or ticks
-    root = ROOT / "experiments" / "scale_v4" / args.profile
+    root = ROOT / "experiments" / args.experiment / args.profile
+    LOG_ROOT = root / "logs"
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    if args.lower_checkpoint:
+        lower_path = args.lower_checkpoint.resolve()
+        lower_sha = hashlib.sha256(lower_path.read_bytes()).hexdigest()
+        previous_sha = manifest.get("lower_checkpoint_sha256")
+        if previous_sha and previous_sha != lower_sha:
+            raise RuntimeError(
+                "experiment namespace already contains a different lower checkpoint")
+        manifest["lower_checkpoint"] = str(lower_path)
+        manifest["lower_checkpoint_sha256"] = lower_sha
+        write_manifest(manifest_path, manifest)
     shards = []
 
     if args.phase in ("all", "collect"):
@@ -164,6 +197,13 @@ def main():
                 "--reset_curriculum_prob", "0.30",
                 "--output", str(output), *scenario_args(spec),
             ]
+            if args.turn_option_adapter:
+                command += ["--turn_option_adapter", "--turn_curvature_gain",
+                            str(args.turn_curvature_gain)]
+            if args.privileged_terrain:
+                command += ["--privileged_terrain"]
+            if args.lower_checkpoint:
+                command += ["--lower_checkpoint", str(args.lower_checkpoint)]
             run_stage(f"collect_{index:02d}_{spec['name']}", command,
                       output / "transitions.npz", manifest)
             manifest[f"audit_{index:02d}_{spec['name']}"] = audit_shard(
@@ -175,12 +215,15 @@ def main():
                   for i, s in enumerate(SCENARIOS)]
 
     dataset = root / f"dataset_{args.profile}_memmap"
-    h1 = ROOT / "runs" / f"scale_v4_{args.profile}_h1"
-    h3 = ROOT / "runs" / f"scale_v4_{args.profile}_h3"
+    h1 = ROOT / "runs" / f"{args.experiment}_{args.profile}_h1"
+    h3 = ROOT / "runs" / f"{args.experiment}_{args.profile}_h3"
     if args.phase in ("all", "collect", "train"):
+        merge_inputs = list(map(str, shards))
+        if not args.exclude_base_dataset:
+            merge_inputs.insert(0, str(args.base_dataset))
         run_stage("merge", [py, "scripts/merge_datasets.py", "--memmap",
-                  "--inputs", str(args.base_dataset), *map(str, shards),
-                  "--output", str(dataset)], dataset / "manifest.json", manifest)
+                  "--inputs", *merge_inputs, "--output", str(dataset)],
+                  dataset / "manifest.json", manifest)
         write_manifest(manifest_path, manifest)
     if args.phase in ("all", "train"):
         h1_updates, h3_updates = ((30, 30) if args.profile == "smoke" else (6000, 5000))
@@ -205,21 +248,48 @@ def main():
         write_manifest(manifest_path, manifest)
 
     if args.phase in ("all", "eval"):
+        variant = ("risk_calibrated" if args.risk_checkpoint and args.calibration
+                   else "risk" if args.risk_checkpoint
+                   else "calibrated" if args.calibration else "raw")
+        if args.planning_horizon != 3:
+            variant += f"_h{args.planning_horizon}"
+        if args.terrain_shield:
+            variant += "_shield"
+        if args.touchdown_error_weight:
+            variant += f"_track{args.touchdown_error_weight:g}"
+        eval_directory = "eval" if variant == "raw" else f"eval_{variant}"
+        video_directory = "videos" if variant == "raw" else f"videos_{variant}"
         eval_envs, eval_ticks = ((4, 180) if args.profile == "smoke" else (32, 1000))
         for scenario_index, spec in enumerate(SCENARIOS):
             for seed in ((4101,) if args.profile == "smoke" else (4101, 4102, 4103)):
                 name = f"eval_{scenario_index:02d}_{spec['name']}_seed{seed}"
-                output = root / "eval" / name
+                output = root / eval_directory / name
                 command = [
                     py, "scripts/evaluate_h1.py", "--checkpoint", str(h3 / "model_best.pt"),
                     "--output", str(output), "--mode", "beam",
+                    "--planning_horizon", str(args.planning_horizon),
+                    "--touchdown_error_weight", str(args.touchdown_error_weight),
                     "--num_envs", str(eval_envs), "--lower_ticks", str(eval_ticks),
                     "--seed", str(seed), "--headless", *scenario_args(spec),
                 ]
+                if args.calibration:
+                    command += ["--calibration", str(args.calibration)]
+                if args.risk_checkpoint:
+                    command += ["--risk_checkpoint", str(args.risk_checkpoint)]
+                if args.lower_checkpoint:
+                    command += ["--lower_checkpoint", str(args.lower_checkpoint)]
+                if args.turn_option_adapter:
+                    command += ["--turn_option_adapter", "--turn_curvature_gain",
+                                str(args.turn_curvature_gain)]
+                if args.privileged_terrain:
+                    command += ["--privileged_terrain"]
+                if args.terrain_shield:
+                    command += ["--terrain_shield"]
                 # difficulty_tag is collector metadata, not an evaluator argument.
                 tag = command.index("--difficulty_tag")
                 del command[tag:tag + 2]
-                run_stage(name, command, output / "metrics.json", manifest)
+                run_stage(f"{variant}_{name}", command,
+                          output / "metrics.json", manifest)
                 write_manifest(manifest_path, manifest)
 
         if not args.no_videos:
@@ -227,16 +297,32 @@ def main():
             for scenario_index in video_indices:
                 spec = SCENARIOS[scenario_index]
                 name = f"video_{scenario_index:02d}_{spec['name']}_seed5101"
-                output = root / "videos" / name
+                output = root / video_directory / name
                 command = [
                     py, "scripts/evaluate_h1.py", "--checkpoint", str(h3 / "model_best.pt"),
                     "--output", str(output), "--mode", "beam", "--num_envs", "1",
+                    "--planning_horizon", str(args.planning_horizon),
+                    "--touchdown_error_weight", str(args.touchdown_error_weight),
                     "--lower_ticks", "750", "--seed", "5101", "--record_video",
                     *scenario_args(spec),
                 ]
+                if args.calibration:
+                    command += ["--calibration", str(args.calibration)]
+                if args.risk_checkpoint:
+                    command += ["--risk_checkpoint", str(args.risk_checkpoint)]
+                if args.lower_checkpoint:
+                    command += ["--lower_checkpoint", str(args.lower_checkpoint)]
+                if args.turn_option_adapter:
+                    command += ["--turn_option_adapter", "--turn_curvature_gain",
+                                str(args.turn_curvature_gain)]
+                if args.privileged_terrain:
+                    command += ["--privileged_terrain"]
+                if args.terrain_shield:
+                    command += ["--terrain_shield"]
                 tag = command.index("--difficulty_tag")
                 del command[tag:tag + 2]
-                run_stage(name, command, output / "rollout.mp4", manifest)
+                run_stage(f"{variant}_{name}", command,
+                          output / "rollout.mp4", manifest)
                 write_manifest(manifest_path, manifest)
 
     write_manifest(manifest_path, manifest)
