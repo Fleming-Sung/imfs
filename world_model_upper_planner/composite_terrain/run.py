@@ -30,6 +30,9 @@ def main():
     p.add_argument("--seed",type=int,default=9201)
     p.add_argument("--route_offset",type=int,default=0)
     p.add_argument("--difficulty",type=float,default=.15)
+    p.add_argument('--action_profile',choices=['legacy','recovery'],default='legacy')
+    p.add_argument('--terrain_profile',choices=['legacy','clearance'],default='legacy')
+    p.add_argument('--planning_objective',choices=['legacy','reward_tail'],default='legacy')
     p.add_argument("--difficulty_levels",default='',help='comma-separated training levels, balanced across map layouts')
     p.add_argument("--horizon",type=int,default=3)
     p.add_argument("--proposals_per_beam",type=int,default=8,
@@ -40,6 +43,12 @@ def main():
                    help="planner: weight of the learned twin-Q long-term value in the candidate score")
     p.add_argument("--fallback",choices=["minimal","max_support"],default="max_support",
                    help="zero-valid fallback: minimal in-place step or max-support candidate")
+    p.add_argument("--success_reward",type=float,default=20.0,
+                   help="terminal arrival bonus on a completed episode (value function must learn it dominates)")
+    p.add_argument("--time_penalty",type=float,default=0.05,
+                   help="per-option standing cost so endless posture adjustment / stalling is not free")
+    p.add_argument("--progress_reward",type=float,default=10.0,
+                   help="weight of goal-distance progress per option")
     p.add_argument("--goal_cost_radius",type=float,default=0.0,
                    help="within this goal distance, compute progress from learned body motion; zero disables")
     p.add_argument("--root_geometry_guard",action="store_true",
@@ -61,6 +70,11 @@ def main():
     p.add_argument("--headless",action="store_true")
     p.add_argument("--sim_device",default="cuda:0")
     args=p.parse_args(); args.use_gpu_pipeline=True; args.use_gpu=True; args.subscenes=0
+    if args.action_profile=='recovery':args.proposals_per_beam=max(12,args.proposals_per_beam)
+    if args.planning_objective=='reward_tail' and not args.motion_checkpoint:
+        raise ValueError('reward-tail planning requires the physical world model')
+    if args.action_profile=='recovery' and args.local_refinement:
+        raise ValueError('recovery actions use multi-step candidates, not the legacy local refiner')
     if not 0 <= args.physical_reward_weight <= 1:
         raise ValueError('physical_reward_weight must be in [0,1]')
     if args.physical_reward_weight and not args.motion_checkpoint:
@@ -96,7 +110,7 @@ def main():
         from .navigation import NavigationLabels
         env.navigation_labels=NavigationLabels(env)
     lower=FrozenLowerPolicy(args.lower_checkpoint,env.device)
-    grid=candidates(env.device); n=env.num_envs
+    grid=candidates(env.device,args.action_profile); n=env.num_envs
     # Smallest in-place step (dx=min, dy=min, dz=0, yaw=0): a stable fallback
     # when no candidate is geometrically valid on the current observation.
     min_step=((grid-grid.new_tensor([-1.,-1.,0.,0.])).abs().sum(-1)).argmin()
@@ -135,7 +149,11 @@ def main():
                     raise ValueError('risk input contract mismatch')
                 risk_model=OptionRiskCritic(RiskConfig(**risk_ck['risk_config'])).to(env.device)
                 risk_model.load_state_dict(risk_ck['risk']);risk_model.eval()
-            planner=AnchoredPlanner(model,motion_model,planner.config,landing_margin=margin,goal_cost_radius=args.goal_cost_radius,risk_model=risk_model)
+            if args.planning_objective=='reward_tail':
+                from dataclasses import replace
+                planner.config=replace(planner.config,terminal_value_weight=args.value_weight)
+            planner=AnchoredPlanner(model,motion_model,planner.config,landing_margin=margin,goal_cost_radius=args.goal_cost_radius,risk_model=risk_model,
+                proposal_mode='recovery' if args.action_profile=='recovery' else 'prior',objective=args.planning_objective)
     active=torch.zeros(n,dtype=torch.bool,device=env.device)
     prev=torch.zeros(n,4,device=env.device)
     episode=torch.zeros(n,dtype=torch.long,device=env.device)
@@ -154,6 +172,7 @@ def main():
         labels['candidate_alignment']=torch.zeros(n,len(grid),device=env.device)
     batches=[]; event_errors=[]; total_falls=total_success=total_timeout=0
     decision_count=exploration_count=0
+    zero_valid_count=micro_count=backward_count=0
     env_success=torch.zeros(n,dtype=torch.long,device=env.device)
     env_falls=torch.zeros_like(env_success)
     goal_hold=torch.zeros_like(env_success)
@@ -179,7 +198,11 @@ def main():
         error=feet[ids,commanded_foot[ids]]-target[ids]
         support=(abs(feet[ids,commanded_foot[ids],2]-env.sample_height(
             feet[ids,commanded_foot[ids],:2]))<.035).float()
-        reward=10*progress-5*fall.float()-2*collided[ids].float()-2*(1-support)+10*success.float()
+        # Terminal arrival must dominate in the value function so the robot aims
+        # at holding in the goal; a per-option time cost makes stalling non-free.
+        reward=(args.progress_reward*progress
+                -5.0*fall.float()-2.0*collided[ids].float()-2.0*(1-support)
+                +args.success_reward*success.float()-args.time_penalty)
         event_errors.append(error.cpu().numpy())
         if args.collect:
             image,proprio=sense(env,prev,proprio_dim,ids)
@@ -224,6 +247,7 @@ def main():
                 image,proprio=sense(env,prev,proprio_dim,ids)
                 map_cache=panorama(env,ids) if args.motion_checkpoint or args.record_motion else None
                 geo=geometry(env,ids,grid) if args.collect or args.behavior!="model" or args.root_geometry_guard else None
+                if geo is not None:zero_valid_count+=int((~geo['candidate_valid'].any(-1)).sum())
                 if args.behavior=="model":
                     mask=None
                     if args.root_geometry_guard:
@@ -248,8 +272,12 @@ def main():
                     score=score.masked_fill(~geo["candidate_valid"],-20)
                     if args.behavior=="diverse":
                         selection=torch.multinomial(torch.softmax(score/.4,-1),1).squeeze(-1)
-                        random=torch.rand(len(ids),device=env.device)<args.random_action_prob
-                        selection[random]=torch.randint(len(grid),(int(random.sum()),),device=env.device)
+                        if args.action_profile=='recovery':
+                            from .interface import explore_supported
+                            selection,_=explore_supported(selection,geo['candidate_valid'],args.random_action_prob)
+                        else:
+                            random=torch.rand(len(ids),device=env.device)<args.random_action_prob
+                            selection[random]=torch.randint(len(grid),(int(random.sum()),),device=env.device)
                     else: selection=score.argmax(-1)
                 decision_count+=len(ids)
                 if args.model_exploration_prob:
@@ -269,6 +297,8 @@ def main():
                     from .refine import refine_root
                     executed=refine_root(env,ids,executed,image,proprio,map_cache,planner)
                 prev[ids]=executed
+                dx=.21+.09*executed[:,0]
+                micro_count+=int((dx.abs()<=.061).sum());backward_count+=int((dx<-.03).sum())
                 apply(env,ids,prev[ids]); commanded_foot[ids]=env.sampler.swing_foot[ids]
                 target[ids]=env.sampler.target_pos[ids,commanded_foot[ids]]
                 previous_distance[ids]=torch.norm(env.goals[ids,:2]-env.base_position[ids,:2],dim=-1)
@@ -324,6 +354,11 @@ def main():
                 print(json.dumps(dict(tick=tick+1,falls=total_falls,success=total_success,
                                       mean_farthest_x=float(max_x.mean()))),flush=True)
     np.savez_compressed(args.output/"trajectory.npz",**{k:np.stack(v) for k,v in trace.items()})
+    route0=env.atlas['routes'][0]
+    np.savez_compressed(args.output/'terrain_env0.npz',**{
+        k:route0[k] for k in ['height','x','y','route_y','start','goal']})
+    (args.output/'terrain_env0.json').write_text(json.dumps({
+        'spec':route0['spec'],'segments':route0['segments']},indent=2))
     if episode_records:
         np.savez_compressed(args.output/'completed_episodes.npz',**{
             k:np.concatenate([v[k] for v in episode_records]) for k in episode_records[0]})
@@ -343,6 +378,11 @@ def main():
         risk_checkpoint=str(args.risk_checkpoint) if args.risk_checkpoint else None,
         landing_calibration=str(args.landing_calibration) if args.landing_calibration else None,
         planning_horizon=args.horizon if args.behavior=="model" else None,
+        action_profile=args.action_profile,terrain_profile=args.terrain_profile,
+        terrain_sha256=hashlib.sha256(env.atlas['height'].tobytes()).hexdigest(),
+        action_contract='stance_dx21_scale9_dy18_scale6_dz6_yaw6_v1',
+        planning_objective=args.planning_objective,
+        zero_valid_decisions=zero_valid_count,micro_step_decisions=micro_count,backward_decisions=backward_count,
         proposals_per_beam=args.proposals_per_beam,
         model_exploration_prob=args.model_exploration_prob,
         decision_count=decision_count,exploration_draw_count=exploration_count,
