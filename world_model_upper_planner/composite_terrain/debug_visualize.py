@@ -110,21 +110,29 @@ def main():
     chosen = torch.zeros_like(episode)
     collided = torch.zeros_like(active)
 
-    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 6))
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (register 3d projection)
+    fig = plt.figure(figsize=(14, 6.5))
+    ax0 = fig.add_subplot(1, 2, 1, projection='3d')
+    ax1 = fig.add_subplot(1, 2, 2)
     plt.ion()
+    frame_idx = [0]
 
     def viz(ids, image, proprio, cache, scores, valid, selected):
         ax0.cla(); ax1.cla()
-        # 左：局部高度图 + 候选点
-        ax0.imshow(image[0, 0].cpu().numpy(), origin='lower',
-                   cmap='terrain', extent=[-1.575, 1.575, -0.5, 2.65])
+        # 左：3D 高度曲面（高度相对支撑脚，单位米）。台阶/梅花桩就是曲面上的凸起。
+        h = image[0, 0].cpu().numpy() * 1.6 - 0.8          # [forward, lateral] -> m
+        fwd = np.linspace(-0.5, 2.65, 64)
+        lat = np.linspace(-1.575, 1.575, 64)
+        X, Y = np.meshgrid(lat, fwd)                        # X=lateral, Y=forward
+        ax0.plot_surface(X, Y, h, cmap='terrain', alpha=0.85,
+                         linewidth=0, antialiased=True)
         targets, _ = world_targets(env, ids, grid)
         lx, ly = local_xy(env.base_position[ids][0],
                           env.base_quat[ids][0], targets[0])
+        dz = 0.06 * grid[:, 2].cpu().numpy()               # 候选命令高度(相对支撑脚)
         order = torch.argsort(scores, descending=True)
         top = order[:args.show_top]
         cmap = plt.cm.coolwarm
-        # 分数归一化到 [0,1] 上色；无效候选画成灰色小点
         valid_mask = valid[0].bool()
         sc = scores.clone()
         sc[~valid_mask] = -torch.inf
@@ -132,23 +140,27 @@ def main():
         norm = (sc - lo) / (hi - lo).clamp_min(1e-6)
         for j in top:
             k = int(j)
-            color = cmap(float(norm[k].clamp(0, 1))) if valid_mask[k] else (0.7, 0.7, 0.7)
-            ax0.scatter(float(ly[k]), float(lx[k]), s=60, color=color,
-                        edgecolors='k' if valid_mask[k] else 'none',
-                        linewidths=0.5, zorder=3, alpha=0.9)
+            color = cmap(float(norm[k].clamp(0, 1))) if valid_mask[k] else (0.6, 0.6, 0.6)
+            ax0.scatter(float(ly[k]), float(lx[k]), float(dz[k]), s=40,
+                        color=color, depthshade=False)
         sel = int(selected[0])
-        ax0.scatter(float(ly[sel]), float(lx[sel]), s=260, marker='*',
-                    color='lime', edgecolors='k', zorder=4)
-        ax0.set_title(f"local heightmap + candidates (selected=green star)\n"
-                      f"score range [{float(lo):.2f}, {float(hi):.2f}]")
-        ax0.set_xlabel("lateral (m)"); ax0.set_ylabel("forward (m)")
-        # 右：128x128 全景缓存
-        ax1.imshow(cache[0, 0].cpu().numpy(), origin='lower', cmap='terrain')
-        ax1.set_title("128x128 panorama cache (multi-step rollout map)")
+        ax0.scatter(float(ly[sel]), float(lx[sel]), float(dz[sel]),
+                    s=260, marker='*', color='lime', depthshade=False)
+        ax0.set_xlabel('lateral (m)'); ax0.set_ylabel('forward (m)')
+        ax0.set_zlabel('height rel stance (m)')
+        ax0.set_zlim(-0.3, 0.3)
+        ax0.view_init(elev=45, azim=-90)
+        ax0.set_title(f"3D heightfield + candidates (green=selected)\n"
+                      f"score range [{float(lo):.1f}, {float(hi):.1f}]")
+        # 右：128x128 全景缓存（发散色标，红=高于支撑脚，蓝=低于，单位 cm）
+        pano = cache[0, 0].cpu().numpy() * 1.6 - 0.8
+        ax1.imshow(pano * 100.0, origin='lower', cmap='RdYlBu_r',
+                   vmin=-20, vmax=20)
+        ax1.set_title("128x128 panorama cache (height rel stance, cm)")
         fig.canvas.draw()
         if args.save_frames:
-            frame = int(durations[0]) if len(ids) else 0
-            fig.savefig(args.output / f"frame_{int(episode[0])}_{frame:05d}.png")
+            fig.savefig(args.output / f"frame_{int(episode[0])}_{frame_idx[0]:05d}.png")
+        frame_idx[0] += 1
         plt.pause(0.001)
 
     with torch.no_grad():
