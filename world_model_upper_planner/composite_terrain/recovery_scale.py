@@ -97,7 +97,8 @@ def main():
         '--dataset', data, '--output', model, '--init', warm_start,
         '--transfer_candidates', '--hidden_dim', 512, '--geometry_dim', 128,
         '--dynamics_dim', 128, '--h1_updates', h1_updates, '--h3_updates', h3_updates,
-        '--batch_size', 1024], model / 'summary.json')
+        # batch 384: 756 candidates + H3 3-step unroll OOMs the 48GB GPU at 1024.
+        '--batch_size', 384], model / 'summary.json')
     world = model / 'h3_best.pt'
 
     # 4) Motion + 3-step sequence.
