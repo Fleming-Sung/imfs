@@ -110,53 +110,57 @@ def main():
     chosen = torch.zeros_like(episode)
     collided = torch.zeros_like(active)
 
-    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (register 3d projection)
-    fig = plt.figure(figsize=(14, 6.5))
-    ax0 = fig.add_subplot(1, 2, 1, projection='3d')
+    fig = plt.figure(figsize=(13, 6))
+    ax0 = fig.add_subplot(1, 2, 1)
     ax1 = fig.add_subplot(1, 2, 2)
     plt.ion()
     frame_idx = [0]
 
     def viz(ids, image, proprio, cache, scores, valid, selected):
         ax0.cla(); ax1.cla()
-        # 左：3D 高度曲面（高度相对支撑脚，单位米）。台阶/梅花桩就是曲面上的凸起。
-        h = image[0, 0].cpu().numpy() * 1.6 - 0.8          # [forward, lateral] -> m
-        fwd = np.linspace(-0.5, 2.65, 64)
-        lat = np.linspace(-1.575, 1.575, 64)
-        X, Y = np.meshgrid(lat, fwd)                        # X=lateral, Y=forward
-        ax0.plot_surface(X, Y, h, cmap='terrain', alpha=0.85,
-                         linewidth=0, antialiased=True)
+        # 左：模型原始输入张量，64x64 归一化高度，不做任何变换/美化。
+        raw = image[0, 0].cpu().numpy()
+        ax0.imshow(raw, origin='lower', cmap='viridis', vmin=0.0, vmax=1.0,
+                   extent=[-1.575, 1.575, -0.5, 2.65])
+        stance = env.foot_positions[ids, 1 - env.sampler.swing_foot[ids]]
+        swing = env.foot_positions[ids, env.sampler.swing_foot[ids]]
+        sx, sy = local_xy(env.base_position[ids][0], env.base_quat[ids][0], stance[0])
+        wx, wy = local_xy(env.base_position[ids][0], env.base_quat[ids][0], swing[0])
+        ax0.scatter(float(sy), float(sx), marker='s', s=90, color='red', label='stance')
+        ax0.scatter(float(wy), float(wx), marker='^', s=90, color='cyan', label='swing')
+        ax0.legend(loc='upper left', fontsize=7)
+        ax0.set_title("RAW model input 64x64 (normalized height)\n"
+                      "0=-0.8m | 0.5=stance level | 1=+0.8m")
+        ax0.set_xlabel('lateral (m)'); ax0.set_ylabel('forward (m)')
+
+        # 右：候选区域放大（只显示候选附近的一小块）
         targets, _ = world_targets(env, ids, grid)
         lx, ly = local_xy(env.base_position[ids][0],
                           env.base_quat[ids][0], targets[0])
-        dz = 0.06 * grid[:, 2].cpu().numpy()               # 候选命令高度(相对支撑脚)
-        order = torch.argsort(scores, descending=True)
-        top = order[:args.show_top]
-        cmap = plt.cm.coolwarm
+        lx_np = lx.cpu().numpy(); ly_np = ly.cpu().numpy()
+        pad = 0.15
+        f0, f1 = float(lx_np.min() - pad), float(lx_np.max() + pad)
+        l0, l1 = float(ly_np.min() - pad), float(ly_np.max() + pad)
+        fi0 = max(0, int((f0 + 0.5) / 3.15 * 64))
+        fi1 = min(64, int((f1 + 0.5) / 3.15 * 64) + 1)
+        li0 = max(0, int((l0 + 1.575) / 3.15 * 64))
+        li1 = min(64, int((l1 + 1.575) / 3.15 * 64) + 1)
+        ax1.imshow(raw[fi0:fi1, li0:li1], origin='lower', cmap='viridis',
+                   vmin=0.0, vmax=1.0, extent=[l0, l1, f0, f1])
         valid_mask = valid[0].bool()
-        sc = scores.clone()
-        sc[~valid_mask] = -torch.inf
+        sc = scores.clone(); sc[~valid_mask] = -torch.inf
         lo, hi = sc[valid_mask].min(), sc[valid_mask].max()
         norm = (sc - lo) / (hi - lo).clamp_min(1e-6)
-        for j in top:
-            k = int(j)
-            color = cmap(float(norm[k].clamp(0, 1))) if valid_mask[k] else (0.6, 0.6, 0.6)
-            ax0.scatter(float(ly[k]), float(lx[k]), float(dz[k]), s=40,
-                        color=color, depthshade=False)
+        cmap = plt.cm.coolwarm
+        colors = [cmap(float(norm[k].clamp(0, 1))) if valid_mask[k]
+                  else (0.6, 0.6, 0.6) for k in range(len(grid))]
+        ax1.scatter(ly_np, lx_np, s=50, c=colors, edgecolors='k', linewidths=0.4)
         sel = int(selected[0])
-        ax0.scatter(float(ly[sel]), float(lx[sel]), float(dz[sel]),
-                    s=260, marker='*', color='lime', depthshade=False)
-        ax0.set_xlabel('lateral (m)'); ax0.set_ylabel('forward (m)')
-        ax0.set_zlabel('height rel stance (m)')
-        ax0.set_zlim(-0.3, 0.3)
-        ax0.view_init(elev=45, azim=-90)
-        ax0.set_title(f"3D heightfield + candidates (green=selected)\n"
+        ax1.scatter(float(ly_np[sel]), float(lx_np[sel]), marker='*', s=300,
+                    color='lime', edgecolors='k', zorder=5)
+        ax1.set_title(f"candidate zoom (green=selected)\n"
                       f"score range [{float(lo):.1f}, {float(hi):.1f}]")
-        # 右：128x128 全景缓存（发散色标，红=高于支撑脚，蓝=低于，单位 cm）
-        pano = cache[0, 0].cpu().numpy() * 1.6 - 0.8
-        ax1.imshow(pano * 100.0, origin='lower', cmap='RdYlBu_r',
-                   vmin=-20, vmax=20)
-        ax1.set_title("128x128 panorama cache (height rel stance, cm)")
+        ax1.set_xlabel('lateral (m)'); ax1.set_ylabel('forward (m)')
         fig.canvas.draw()
         if args.save_frames:
             fig.savefig(args.output / f"frame_{int(episode[0])}_{frame_idx[0]:05d}.png")
