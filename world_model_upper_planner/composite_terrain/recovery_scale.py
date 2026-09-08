@@ -22,6 +22,10 @@ import subprocess
 import sys
 import time
 
+_PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT not in sys.path:
+    sys.path.insert(0, _PROJECT)
+
 
 def main():
     os.chdir(Path(__file__).resolve().parents[1])
@@ -129,7 +133,7 @@ def main():
                 '--output', out, '--num_envs', 64, '--steps', 3000,
                 '--seed', seed, '--headless'], out / 'metrics.json')
             if tag != 'original':
-                from .compare_runs import compare
+                from composite_terrain.compare_runs import compare
                 (root / f'paired_{tag}_{seed}.json').write_text(
                     json.dumps(compare(root / f'original_seed{seed}', out), indent=2))
 
